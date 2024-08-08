@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const root = @import("root.zig");
+const bdhke = @import("bdhke.zig");
 
 pub fn main() !void {
     const stdout_file = std.io.getStdOut().writer();
@@ -9,7 +9,7 @@ pub fn main() !void {
 
     try stdout.print("Running Coconut...\n", .{});
 
-    //root.step1_alice();
+    try bdhke.testBDHKE();
 
     try bw.flush(); // Don't forget to flush!
 }
