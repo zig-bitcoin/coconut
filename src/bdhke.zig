@@ -13,34 +13,49 @@ const BDHKEError = error{
 /// Hashes a message to a point on the secp256k1 curve
 fn hashToPoint(message: []const u8) BDHKEError!Point {
     const domain_separator = "Secp256k1_HashToCurve_Cashu_";
-    var hasher = crypto.hash.sha2.Sha256.init(.{});
-    hasher.update(domain_separator);
-    hasher.update(message);
+    var initial_hasher = crypto.hash.sha2.Sha256.init(.{});
+    initial_hasher.update(domain_separator);
+    initial_hasher.update(message);
+    var msg_to_hash: [32]u8 = undefined;
+    initial_hasher.final(&msg_to_hash);
 
     var counter: u32 = 0;
     while (counter < 0x10000) : (counter += 1) {
+        var to_hash: [36]u8 = undefined;
+        @memcpy(to_hash[0..32], &msg_to_hash);
+
+        // Manually write little-endian bytes
+        to_hash[32] = @intCast(counter & 0xFF);
+        to_hash[33] = @intCast((counter >> 8) & 0xFF);
+        to_hash[34] = @intCast((counter >> 16) & 0xFF);
+        to_hash[35] = @intCast((counter >> 24) & 0xFF);
+
+        var hasher = crypto.hash.sha2.Sha256.init(.{});
+        hasher.update(&to_hash);
         var hash: [32]u8 = undefined;
-        var temp_hasher = hasher;
-        temp_hasher.update(std.mem.asBytes(&counter));
-        temp_hasher.final(&hash);
+        hasher.final(&hash);
 
-        hash[31] &= 0x01; // Ensure the resulting scalar is below the curve order
+        // Attempt to create a public key
+        var compressed_point: [33]u8 = undefined;
+        compressed_point[0] = 0x02; // Set to compressed point format
+        @memcpy(compressed_point[1..], &hash);
 
-        if (Scalar.fromBytes(hash, .little)) |scalar| {
-            return Point.basePoint.mul(scalar.toBytes(.little), .little) catch continue;
-        } else |_| {}
+        if (Point.fromSec1(&compressed_point)) |point| {
+            return point;
+        } else |_| {
+            // If point creation fails, continue to next iteration
+            continue;
+        }
     }
 
     return BDHKEError.InvalidPoint;
 }
 
 /// Step 1: Alice blinds the message
-pub fn step1Alice(secret_msg: []const u8, blinding_factor: ?Scalar) !struct { B_: Point, r: Scalar } {
+pub fn step1Alice(secret_msg: []const u8, blinding_factor: Point) !Point {
     const Y = try hashToPoint(secret_msg);
-    const r = blinding_factor orelse Scalar.random();
-    const rG = try Point.basePoint.mul(r.toBytes(.little), .little);
-    const B_ = Y.add(rG);
-    return .{ .B_ = B_, .r = r };
+    const B_ = Y.add(blinding_factor);
+    return B_;
 }
 
 /// Step 2: Bob signs the blinded message
@@ -121,11 +136,11 @@ pub fn testBDHKE() !void {
 
     std.debug.print("Starting BDHKE test\n", .{});
     std.debug.print("Secret message: {s}\n", .{secret_msg});
+    const r = Scalar.random();
 
+    const blinding_factor = try Point.basePoint.mul(r.toBytes(.little), .little);
     // Step 1: Alice blinds the message
-    const step1_result = try step1Alice(secret_msg, null);
-    const B_ = step1_result.B_;
-    const r = step1_result.r;
+    const B_ = try step1Alice(secret_msg, blinding_factor);
 
     std.debug.print("Step 1 complete: Message blinded\n", .{});
 
