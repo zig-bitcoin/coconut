@@ -73,7 +73,7 @@ The benchmark results are presented in a table format, displaying both nanosecon
 
 | Operation        | Time (ns) | Time (ms) |
 | ---------------- | --------: | --------: |
-| hashToPoint      |     21449 |     0.021 |
+| hashToCurve      |     21449 |     0.021 |
 | step1Alice       |     20671 |     0.021 |
 | step2Bob         |    647647 |     0.648 |
 | step3Alice       |    149790 |     0.150 |

@@ -41,9 +41,9 @@ fn benchmarkAll(results: *std.ArrayList(BenchmarkResult)) !void {
     const blinding_factor = try Point.basePoint.mul(r.toBytes(.little), .little);
 
     // Benchmark individual steps
-    try benchmarkStep(results, "hashToPoint", struct {
+    try benchmarkStep(results, "hashToCurve", struct {
         fn func() !void {
-            _ = try bdhke.hashToPoint(secret_msg);
+            _ = try bdhke.hashToCurve(secret_msg);
         }
     }.func, .{});
 

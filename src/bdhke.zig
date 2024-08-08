@@ -12,7 +12,7 @@ const BDHKEError = error{
 
 /// Step 1: Alice blinds the message
 pub fn step1Alice(secret_msg: []const u8, blinding_factor: Point) !Point {
-    const Y = try hashToPoint(secret_msg);
+    const Y = try hashToCurve(secret_msg);
     const B_ = Y.add(blinding_factor);
     return B_;
 }
@@ -45,7 +45,7 @@ pub fn step3Alice(C_: Point, r: Scalar, A: Point) !Point {
 
 /// Verifies the BDHKE process
 pub fn verify(a: Scalar, C: Point, secret_msg: []const u8) !bool {
-    const Y = try hashToPoint(secret_msg);
+    const Y = try hashToCurve(secret_msg);
     const aY = try Y.mul(a.toBytes(.little), .little);
     return C.equivalent(aY);
 }
@@ -66,7 +66,7 @@ pub fn aliceVerifyDLEQ(B_: Point, C_: Point, e: Scalar, s: Scalar, A: Point) !bo
 
 /// Carol verifies the DLEQ proof
 pub fn carolVerifyDLEQ(secret_msg: []const u8, r: Scalar, C: Point, e: Scalar, s: Scalar, A: Point) !bool {
-    const Y = try hashToPoint(secret_msg);
+    const Y = try hashToCurve(secret_msg);
     const rA = try A.mul(r.toBytes(.little), .little);
     const C_ = C.add(rA);
     const rG = try Point.basePoint.mul(r.toBytes(.little), .little);
@@ -87,7 +87,7 @@ fn hashE(points: []const Point) !Scalar {
 }
 
 /// Hashes a message to a point on the secp256k1 curve
-pub fn hashToPoint(message: []const u8) BDHKEError!Point {
+pub fn hashToCurve(message: []const u8) BDHKEError!Point {
     const domain_separator = "Secp256k1_HashToCurve_Cashu_";
     var initial_hasher = crypto.hash.sha2.Sha256.init(.{});
     initial_hasher.update(domain_separator);
