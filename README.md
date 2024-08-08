@@ -23,6 +23,29 @@ For now it contains only the BDHKE implementation.
 zig build run
 ```
 
+Example output:
+
+```text
+Starting BDHKE test
+Secret message: test_message
+Alice's private key (a): 0000000000000000000000000000000000000000000000000000000000000001
+Alice's public key (A): 0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798
+r private key: 0000000000000000000000000000000000000000000000000000000000000001
+Blinding factor (r): 0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798
+Blinded message (B_): 025cc16fe33b953e2ace39653efb3e7a7049711ae1d8a2f7a9108753f1cdea742b
+Step 1 complete: Message blinded
+Blinded signature (C_): 025cc16fe33b953e2ace39653efb3e7a7049711ae1d8a2f7a9108753f1cdea742b
+DLEQ proof - e: e87bf88896743cd89e8f8316811553a15d74538f205c9cff1f72ff23e624cc1f
+DLEQ proof - s: 9f546cb383df3d8c0d36c925045287c113df293c3429083d2c5728cfdbddd925
+Step 2 complete: Blinded message signed
+Alice's DLEQ verification successful
+Unblinded signature (C): 0215fdc277c704590f3c3bcc08cf9a8f748f46619b96268cece86442b6c3ac461b
+Step 3 complete: Signature unblinded
+Carol's DLEQ verification successful
+Final verification successful
+BDHKE test completed successfully
+```
+
 ## Resources
 
 - [Cashu documentation](https://docs.cashu.space/)
