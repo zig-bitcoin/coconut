@@ -106,13 +106,14 @@ fn benchmarkStep(results: *std.ArrayList(BenchmarkResult), name: []const u8, com
 
 fn displayResultsTable(results: *std.ArrayList(BenchmarkResult)) !void {
     const stdout = std.io.getStdOut().writer();
-    try stdout.print("\n{s: <20} | {s: >15} | {s: >15}\n", .{ "Operation", "Time (ns)", "Time (ms)" });
+    try stdout.print("\n{s: <20} | {s: >15} | {s: >15}\n", .{ "Operation", "Time (us)", "Time (ms)" });
     try stdout.writeByteNTimes('-', 58);
     try stdout.writeByte('\n');
 
     for (results.items) |result| {
         const average_ms = @as(f64, @floatFromInt(result.average_ns)) / 1_000_000.0;
-        try stdout.print("{s: <20} | {d: >15} | {d: >15.3}\n", .{ result.name, result.average_ns, average_ms });
+        const average_us = @as(f64, @floatFromInt(result.average_ns)) / 1_000.0;
+        try stdout.print("{s: <20} | {d: >15.3} | {d: >15.3}\n", .{ result.name, average_us, average_ms });
     }
 }
 
