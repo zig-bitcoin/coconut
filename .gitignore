@@ -22,3 +22,5 @@ Cargo.lock
 
 **/.zig-cache
 **/zig-out
+
+**/benchmark_report.csv

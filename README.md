@@ -46,6 +46,56 @@ Final verification successful
 BDHKE test completed successfully
 ```
 
+## Benchmarks
+
+This project includes performance benchmarks for each step of the BDHKE process, as well as the end-to-end flow. The benchmarks are implemented using Zig's built-in benchmarking functionality.
+
+### Running Benchmarks Locally
+
+To run the benchmarks on your local machine:
+
+```sh
+# Run benchmarks without generating a report
+zig build bench
+
+# Run benchmarks and generate a CSV report
+zig build bench -- --report
+
+# Run benchmarks without generating a report (explicit)
+zig build bench -- --report=false
+```
+
+The benchmarks will be compiled with the ReleaseFast optimization level, providing the most accurate performance metrics.
+
+### Benchmark Results
+
+The benchmark results are presented in a table format, displaying both nanosecond and millisecond timings:
+
+| Operation        | Time (ns) | Time (ms) |
+| ---------------- | --------: | --------: |
+| hashToPoint      |     21449 |     0.021 |
+| step1Alice       |     20671 |     0.021 |
+| step2Bob         |    647647 |     0.648 |
+| step3Alice       |    149790 |     0.150 |
+| verify           |    170793 |     0.171 |
+| End-to-End BDHKE |    992257 |     0.992 |
+
+### Benchmark Report
+
+When run with the `--report` option, a CSV file named `benchmark_report.csv` will be generated in the project root directory. This file contains the operation names and their corresponding execution times in nanoseconds.
+
+### Benchmark Results in CI
+
+The benchmarks are also run as part of our Continuous Integration (CI) pipeline on GitHub Actions. The workflow runs the benchmarks with the report generation option enabled. You can view the results of the latest benchmark run in the "Actions" tab of the GitHub repository, under the "Run benchmarks with report" step of the most recent workflow run.
+
+The benchmark report CSV file is saved as an artifact and can be downloaded from the GitHub Actions page for each workflow run.
+
+### Notes on Benchmark Results
+
+- Benchmark results can vary based on the hardware and system load. For consistent comparisons, always use the same machine and ensure minimal background processes.
+- The CI benchmark results may differ from local results due to differences in hardware and environment.
+- These benchmarks are meant to provide relative performance metrics and may not represent absolute real-world performance in all scenarios.
+
 ## Resources
 
 - [Cashu documentation](https://docs.cashu.space/)
