@@ -129,19 +129,27 @@ fn hashE(points: []const Point) !Scalar {
 
 /// End-to-end test scenario for BDHKE
 pub fn testBDHKE() !void {
-    // Initialize
+    // Initialize with deterministic values
     const secret_msg = "test_message";
-    const a = Scalar.random();
+    var a_bytes: [32]u8 = [_]u8{0} ** 31 ++ [_]u8{1};
+    const a = try Scalar.fromBytes(a_bytes, .big);
     const A = try Point.basePoint.mul(a.toBytes(.little), .little);
 
     std.debug.print("Starting BDHKE test\n", .{});
     std.debug.print("Secret message: {s}\n", .{secret_msg});
-    const r = Scalar.random();
+    std.debug.print("Alice's private key (a): {s}\n", .{std.fmt.fmtSliceHexLower(&a_bytes)});
+    std.debug.print("Alice's public key (A): {s}\n", .{std.fmt.fmtSliceHexLower(&A.toCompressedSec1())});
 
+    // Deterministic blinding factor
+    var r_bytes: [32]u8 = [_]u8{0} ** 31 ++ [_]u8{1};
+    const r = try Scalar.fromBytes(r_bytes, .big);
     const blinding_factor = try Point.basePoint.mul(r.toBytes(.little), .little);
+    std.debug.print("r private key: {s}\n", .{std.fmt.fmtSliceHexLower(&r_bytes)});
+    std.debug.print("Blinding factor (r): {s}\n", .{std.fmt.fmtSliceHexLower(&blinding_factor.toCompressedSec1())});
+
     // Step 1: Alice blinds the message
     const B_ = try step1Alice(secret_msg, blinding_factor);
-
+    std.debug.print("Blinded message (B_): {s}\n", .{std.fmt.fmtSliceHexLower(&B_.toCompressedSec1())});
     std.debug.print("Step 1 complete: Message blinded\n", .{});
 
     // Step 2: Bob signs the blinded message
@@ -150,6 +158,9 @@ pub fn testBDHKE() !void {
     const e = step2_result.e;
     const s = step2_result.s;
 
+    std.debug.print("Blinded signature (C_): {s}\n", .{std.fmt.fmtSliceHexLower(&C_.toCompressedSec1())});
+    std.debug.print("DLEQ proof - e: {s}\n", .{std.fmt.fmtSliceHexLower(&e.toBytes(.big))});
+    std.debug.print("DLEQ proof - s: {s}\n", .{std.fmt.fmtSliceHexLower(&s.toBytes(.big))});
     std.debug.print("Step 2 complete: Blinded message signed\n", .{});
 
     // Alice verifies DLEQ proof
@@ -161,7 +172,7 @@ pub fn testBDHKE() !void {
 
     // Step 3: Alice unblinds the signature
     const C = try step3Alice(C_, r, A);
-
+    std.debug.print("Unblinded signature (C): {s}\n", .{std.fmt.fmtSliceHexLower(&C.toCompressedSec1())});
     std.debug.print("Step 3 complete: Signature unblinded\n", .{});
 
     // Carol verifies DLEQ proof
