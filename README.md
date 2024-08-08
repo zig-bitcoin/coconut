@@ -48,7 +48,7 @@ BDHKE test completed successfully
 
 ## Benchmarks
 
-This project includes performance benchmarks for each step of the BDHKE process, as well as the end-to-end flow. The benchmarks are implemented using Zig's built-in benchmarking functionality.
+This project includes performance benchmarks for each step of the BDHKE process, as well as the end-to-end flow.
 
 ### Running Benchmarks Locally
 
@@ -65,7 +65,7 @@ zig build bench -- --report
 zig build bench -- --report=false
 ```
 
-The benchmarks will be compiled with the ReleaseFast optimization level, providing the most accurate performance metrics.
+The benchmarks will be compiled with the ReleaseFast optimization level.
 
 ### Benchmark Results
 
@@ -100,7 +100,7 @@ When run with the `--report` option, a CSV file named `benchmark_report.csv` wil
 
 ### Benchmark Results in CI
 
-The benchmarks are also run as part of our Continuous Integration (CI) pipeline on GitHub Actions. The workflow runs the benchmarks with the report generation option enabled. You can view the results of the latest benchmark run in the "Actions" tab of the GitHub repository, under the "Run benchmarks with report" step of the most recent workflow run.
+The benchmarks are also run as part of the CI pipeline on GitHub Actions. The workflow runs the benchmarks with the report generation option enabled. You can view the results of the latest benchmark run in the "Actions" tab of the GitHub repository, under the "Run benchmarks with report" step of the most recent workflow run.
 
 The benchmark report CSV file is saved as an artifact and can be downloaded from the GitHub Actions page for each workflow run.
 
