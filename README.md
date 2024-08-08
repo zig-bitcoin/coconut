@@ -69,7 +69,9 @@ The benchmarks will be compiled with the ReleaseFast optimization level, providi
 
 ### Benchmark Results
 
-The benchmark results are presented in a table format, displaying both nanosecond and millisecond timings:
+The benchmark results are presented in a table format, displaying both nanosecond and millisecond timings.
+
+Example of a benchmark report:
 
 | Operation        | Time (ns) | Time (ms) |
 | ---------------- | --------: | --------: |
@@ -79,6 +81,18 @@ The benchmark results are presented in a table format, displaying both nanosecon
 | step3Alice       |    149790 |     0.150 |
 | verify           |    170793 |     0.171 |
 | End-to-End BDHKE |    992257 |     0.992 |
+
+This run was performed on a MacBook Pro with an M1 chip.
+
+```bash
+Machine Info:
+  Model: MacBook Pro
+  CPU: Apple M1 Max
+  Cores: 10 (Physical), 10 (Logical)
+  Memory: 64 GB
+  macOS Version: 14.5
+  Zig Version: 0.14.0-dev.850+ddcb7b1c1
+```
 
 ### Benchmark Report
 
