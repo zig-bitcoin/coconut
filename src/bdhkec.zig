@@ -9,10 +9,9 @@ const crypto = std.crypto;
 
 pub const Secp256k1 = struct {
     ctx: ?*secp256k1.struct_secp256k1_context_struct,
-    ptr: []align(16) u8,
 
     pub fn deinit(self: @This(), allocator: std.mem.Allocator) void {
-        allocator.free(self.ptr);
+        allocator.free(@as([]align(16) u8, @ptrCast(self.ptr)));
     }
 
     pub fn genNew(allocator: std.mem.Allocator) !@This() {
@@ -34,7 +33,6 @@ pub const Secp256k1 = struct {
 
         return .{
             .ctx = ctx,
-            .ptr = ptr,
         };
     }
 };
