@@ -1,8 +1,36 @@
 const std = @import("std");
 
-pub fn build(b: *std.Build) void {
+fn buildSecp256k1(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) !*std.Build.Step.Compile {
+    const lib = b.addStaticLibrary(.{ .name = "zig-libsecp256k1", .target = target, .optimize = optimize });
+
+    lib.addIncludePath(b.path("libsecp256k1/"));
+    lib.addIncludePath(b.path("libsecp256k1/src"));
+
+    var flags = std.ArrayList([]const u8).init(b.allocator);
+    defer flags.deinit();
+
+    try flags.appendSlice(&.{"-DENABLE_MODULE_RECOVERY=1"});
+    lib.addCSourceFiles(.{ .root = b.path("libsecp256k1/"), .flags = flags.items, .files = &.{ "./src/secp256k1.c", "./src/precomputed_ecmult.c", "./src/precomputed_ecmult_gen.c" } });
+    lib.defineCMacro("USE_FIELD_10X26", "1");
+    lib.defineCMacro("USE_SCALAR_8X32", "1");
+    lib.defineCMacro("USE_ENDOMORPHISM", "1");
+    lib.defineCMacro("USE_NUM_NONE", "1");
+    lib.defineCMacro("USE_FIELD_INV_BUILTIN", "1");
+    lib.defineCMacro("USE_SCALAR_INV_BUILTIN", "1");
+    lib.installHeadersDirectory(b.path("libsecp256k1/src"), "", .{ .include_extensions = &.{".h"} });
+    lib.installHeadersDirectory(b.path("libsecp256k1/include/"), "", .{ .include_extensions = &.{".h"} });
+    lib.linkLibC();
+
+    return lib;
+}
+
+pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
+
+    // libsecp256k1 static C library.
+    const libsecp256k1 = try buildSecp256k1(b, target, optimize);
+    b.installArtifact(libsecp256k1);
 
     const lib = b.addStaticLibrary(.{
         .name = "coconut",
@@ -33,10 +61,11 @@ pub fn build(b: *std.Build) void {
     run_step.dependOn(&run_cmd.step);
 
     const lib_unit_tests = b.addTest(.{
-        .root_source_file = b.path("src/lib.zig"),
+        .root_source_file = b.path("src/bdhkec.zig"),
         .target = target,
         .optimize = optimize,
     });
+    lib_unit_tests.linkLibrary(libsecp256k1);
 
     const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);
 
@@ -60,6 +89,7 @@ pub fn build(b: *std.Build) void {
         .optimize = .ReleaseFast,
     });
 
+    bench.linkLibrary(libsecp256k1);
     const run_bench = b.addRunArtifact(bench);
 
     // Add option for report generation

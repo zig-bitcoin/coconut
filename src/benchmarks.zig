@@ -1,5 +1,7 @@
 const std = @import("std");
 const bdhke = @import("bdhke.zig");
+const bdhkec = @import("bdhkec.zig");
+
 const Secp256k1 = std.crypto.ecc.Secp256k1;
 const Scalar = Secp256k1.scalar.Scalar;
 const Point = Secp256k1;
@@ -17,7 +19,7 @@ pub fn main() !void {
     var results = std.ArrayList(BenchmarkResult).init(allocator);
     defer results.deinit();
 
-    try benchmarkAll(&results);
+    try benchmarkAll(allocator, &results);
     try displayResultsTable(&results);
 
     if (generate_report) {
@@ -30,13 +32,72 @@ const BenchmarkResult = struct {
     average_ns: u64,
 };
 
-fn benchmarkAll(results: *std.ArrayList(BenchmarkResult)) !void {
+fn benchmarkAll(allocator: std.mem.Allocator, results: *std.ArrayList(BenchmarkResult)) !void {
     // Initialize test data
     const secret_msg = "test_message";
     const a_bytes: [32]u8 = [_]u8{0} ** 31 ++ [_]u8{1};
+    const r_bytes: [32]u8 = [_]u8{0} ** 31 ++ [_]u8{1};
+
+    // c wrapped bench
+    {
+        const dhke = try bdhkec.Dhke.init(allocator);
+        defer dhke.deinit();
+        const a = try bdhkec.SecretKey.fromSlice(&[_]u8{1} ** 32);
+        const blinding_factor = try bdhkec.SecretKey.fromSlice(&[_]u8{1} ** 32);
+
+        // Benchmark individual steps
+        try benchmarkStep(results, "hashToCurveC", struct {
+            fn func() !void {
+                _ = try bdhkec.Dhke.hashToCurve(secret_msg);
+            }
+        }.func, .{});
+
+        try benchmarkStep(results, "step1AliceC", struct {
+            fn func(_dhke: *const bdhkec.Dhke, msg: []const u8, bf: bdhkec.SecretKey) !void {
+                _ = try _dhke.step1Alice(msg, bf);
+            }
+        }.func, .{ &dhke, secret_msg, blinding_factor });
+
+        const B_ = try dhke.step1Alice(secret_msg, blinding_factor);
+        try benchmarkStep(results, "step2BobC", struct {
+            fn func(_dhke: *const bdhkec.Dhke, b: bdhkec.PublicKey, key: bdhkec.SecretKey) !void {
+                _ = try _dhke.step2Bob(b, key);
+            }
+        }.func, .{ &dhke, B_, a });
+
+        const C_ = try dhke.step2Bob(B_, a);
+        try benchmarkStep(results, "step3AliceC", struct {
+            fn func(_dhke: *const bdhkec.Dhke, c: bdhkec.PublicKey, key: bdhkec.SecretKey, pub_key: bdhkec.PublicKey) !void {
+                _ = try _dhke.step3Alice(c, key, pub_key);
+            }
+        }.func, .{ &dhke, C_, blinding_factor, a.publicKey(dhke.secp) });
+
+        const step3_c = try dhke.step3Alice(C_, blinding_factor, a.publicKey(dhke.secp));
+
+        try benchmarkStep(results, "verifyC", struct {
+            fn func(_dhke: *const bdhkec.Dhke, a_: bdhkec.SecretKey, c: bdhkec.PublicKey, msg: []const u8) !void {
+                _ = try _dhke.verify(a_, c, msg);
+            }
+        }.func, .{ &dhke, a, step3_c, secret_msg });
+
+        // Benchmark end-to-end flow
+        try benchmarkStep(results, "E2E-C", struct {
+            fn func(_dhke: *const bdhkec.Dhke, msg: []const u8, bf: bdhkec.SecretKey, _a: bdhkec.SecretKey) !void {
+                const b_ = try _dhke
+                    .step1Alice(msg, bf);
+
+                const c_ = try _dhke.step2Bob(b_, _a);
+
+                const c = try _dhke
+                    .step3Alice(c_, bf, _a.publicKey(_dhke.secp));
+
+                _ = try _dhke.verify(_a, c, msg);
+            }
+        }.func, .{ &dhke, secret_msg, blinding_factor, a });
+    }
+
     const a = try Scalar.fromBytes(a_bytes, .big);
     const A = try Point.basePoint.mul(a.toBytes(.little), .little);
-    const r_bytes: [32]u8 = [_]u8{0} ** 31 ++ [_]u8{1};
     const r = try Scalar.fromBytes(r_bytes, .big);
     const blinding_factor = try Point.basePoint.mul(r.toBytes(.little), .little);
 
