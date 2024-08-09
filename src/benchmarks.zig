@@ -38,35 +38,34 @@ fn benchmarkAll(allocator: std.mem.Allocator, results: *std.ArrayList(BenchmarkR
     const a_bytes: [32]u8 = [_]u8{1} ** 32;
     const r_bytes: [32]u8 = [_]u8{1} ** 32;
 
-    // c wrapped bench
+    // C wrapped bench
     {
         const dhke = try bdhkec.Dhke.init(allocator);
         defer dhke.deinit();
         const a = try bdhkec.SecretKey.fromSlice(&a_bytes);
         const blinding_factor = try bdhkec.SecretKey.fromSlice(&r_bytes);
 
-        // Benchmark individual steps
-        try benchmarkStep(results, "hashToCurveC", struct {
+        try benchmarkStep(results, "Hash to Curve (C)", struct {
             fn func() !void {
                 _ = try bdhkec.Dhke.hashToCurve(secret_msg);
             }
         }.func, .{});
 
-        try benchmarkStep(results, "step1AliceC", struct {
+        try benchmarkStep(results, "Alice Step 1 (C)", struct {
             fn func(_dhke: *const bdhkec.Dhke, msg: []const u8, bf: bdhkec.SecretKey) !void {
                 _ = try _dhke.step1Alice(msg, bf);
             }
         }.func, .{ &dhke, secret_msg, blinding_factor });
 
         const B_ = try dhke.step1Alice(secret_msg, blinding_factor);
-        try benchmarkStep(results, "step2BobC", struct {
+        try benchmarkStep(results, "Bob Step 2 (C)", struct {
             fn func(_dhke: *const bdhkec.Dhke, b: bdhkec.PublicKey, key: bdhkec.SecretKey) !void {
                 _ = try _dhke.step2Bob(b, key);
             }
         }.func, .{ &dhke, B_, a });
 
         const C_ = try dhke.step2Bob(B_, a);
-        try benchmarkStep(results, "step3AliceC", struct {
+        try benchmarkStep(results, "Alice Step 3 (C)", struct {
             fn func(_dhke: *const bdhkec.Dhke, c: bdhkec.PublicKey, key: bdhkec.SecretKey, pub_key: bdhkec.PublicKey) !void {
                 _ = try _dhke.step3Alice(c, key, pub_key);
             }
@@ -74,80 +73,74 @@ fn benchmarkAll(allocator: std.mem.Allocator, results: *std.ArrayList(BenchmarkR
 
         const step3_c = try dhke.step3Alice(C_, blinding_factor, a.publicKey(dhke.secp));
 
-        try benchmarkStep(results, "verifyC", struct {
+        try benchmarkStep(results, "Verify (C)", struct {
             fn func(_dhke: *const bdhkec.Dhke, a_: bdhkec.SecretKey, c: bdhkec.PublicKey, msg: []const u8) !void {
                 _ = try _dhke.verify(a_, c, msg);
             }
         }.func, .{ &dhke, a, step3_c, secret_msg });
 
-        // Benchmark end-to-end flow
-        try benchmarkStep(results, "E2E-C", struct {
+        try benchmarkStep(results, "End-to-End BDHKE (C)", struct {
             fn func(_dhke: *const bdhkec.Dhke, msg: []const u8, bf: bdhkec.SecretKey, _a: bdhkec.SecretKey) !void {
-                const b_ = try _dhke
-                    .step1Alice(msg, bf);
-
+                const b_ = try _dhke.step1Alice(msg, bf);
                 const c_ = try _dhke.step2Bob(b_, _a);
-
-                const c = try _dhke
-                    .step3Alice(c_, bf, _a.publicKey(_dhke.secp));
-
+                const c = try _dhke.step3Alice(c_, bf, _a.publicKey(_dhke.secp));
                 _ = try _dhke.verify(_a, c, msg);
             }
         }.func, .{ &dhke, secret_msg, blinding_factor, a });
     }
 
-    const a = try Scalar.fromBytes(a_bytes, .big);
-    const A = try Point.basePoint.mul(a.toBytes(.little), .little);
-    const r = try Scalar.fromBytes(r_bytes, .big);
-    const blinding_factor = try Point.basePoint.mul(r.toBytes(.little), .little);
+    // Zig standard library bench
+    {
+        const a = try Scalar.fromBytes(a_bytes, .big);
+        const A = try Point.basePoint.mul(a.toBytes(.little), .little);
+        const r = try Scalar.fromBytes(r_bytes, .big);
+        const blinding_factor = try Point.basePoint.mul(r.toBytes(.little), .little);
 
-    // Benchmark individual steps
-    try benchmarkStep(results, "hashToCurve", struct {
-        fn func() !void {
-            _ = try bdhke.hashToCurve(secret_msg);
-        }
-    }.func, .{});
-
-    try benchmarkStep(results, "step1Alice", struct {
-        fn func(msg: []const u8, bf: Point) !void {
-            _ = try bdhke.step1Alice(msg, bf);
-        }
-    }.func, .{ secret_msg, blinding_factor });
-
-    const B_ = try bdhke.step1Alice(secret_msg, blinding_factor);
-    try benchmarkStep(results, "step2Bob", struct {
-        fn func(b: Point, key: Scalar) !void {
-            _ = try bdhke.step2Bob(b, key, false);
-        }
-    }.func, .{ B_, a });
-
-    const step2_result = try bdhke.step2Bob(B_, a, false);
-    try benchmarkStep(results, "step3Alice", struct {
-        fn func(c: Point, key: Scalar, pub_key: Point) !void {
-            _ = try bdhke.step3Alice(c, key, pub_key);
-        }
-    }.func, .{ step2_result.C_, r, A });
-
-    const C = try bdhke.step3Alice(step2_result.C_, r, A);
-    try benchmarkStep(results, "verify", struct {
-        fn func(key: Scalar, point: Point, msg: []const u8) !void {
-            _ = try bdhke.verify(key, point, msg);
-        }
-    }.func, .{ a, C, secret_msg });
-
-    // Benchmark end-to-end flow
-    try benchmarkStep(results, "End-to-End BDHKE", struct {
-        fn func(msg: []const u8, bf: Point, key: Scalar, pub_key: Point, _r: Scalar) !void {
-            const b = try bdhke.step1Alice(msg, bf);
-            const step2_res = try bdhke.step2Bob(b, key, false);
-            const c = try bdhke.step3Alice(step2_res.C_, _r, pub_key);
-            const is_valid = try bdhke.verify(key, c, secret_msg);
-            // Fail if the verification fails
-            if (!is_valid) {
-                return error.VerificationFailed;
+        try benchmarkStep(results, "Hash to Curve (Zig)", struct {
+            fn func() !void {
+                _ = try bdhke.hashToCurve(secret_msg);
             }
-        }
-    }.func, .{ secret_msg, blinding_factor, a, A, r });
+        }.func, .{});
+
+        try benchmarkStep(results, "Alice Step 1 (Zig)", struct {
+            fn func(msg: []const u8, bf: Point) !void {
+                _ = try bdhke.step1Alice(msg, bf);
+            }
+        }.func, .{ secret_msg, blinding_factor });
+
+        const B_ = try bdhke.step1Alice(secret_msg, blinding_factor);
+        try benchmarkStep(results, "Bob Step 2 (Zig)", struct {
+            fn func(b: Point, key: Scalar) !void {
+                _ = try bdhke.step2Bob(b, key, false);
+            }
+        }.func, .{ B_, a });
+
+        const step2_result = try bdhke.step2Bob(B_, a, false);
+        try benchmarkStep(results, "Alice Step 3 (Zig)", struct {
+            fn func(c: Point, key: Scalar, pub_key: Point) !void {
+                _ = try bdhke.step3Alice(c, key, pub_key);
+            }
+        }.func, .{ step2_result.C_, r, A });
+
+        const C = try bdhke.step3Alice(step2_result.C_, r, A);
+        try benchmarkStep(results, "Verify (Zig)", struct {
+            fn func(key: Scalar, point: Point, msg: []const u8) !void {
+                _ = try bdhke.verify(key, point, msg);
+            }
+        }.func, .{ a, C, secret_msg });
+
+        try benchmarkStep(results, "End-to-End BDHKE (Zig)", struct {
+            fn func(msg: []const u8, bf: Point, key: Scalar, pub_key: Point, _r: Scalar) !void {
+                const b = try bdhke.step1Alice(msg, bf);
+                const step2_res = try bdhke.step2Bob(b, key, false);
+                const c = try bdhke.step3Alice(step2_res.C_, _r, pub_key);
+                const is_valid = try bdhke.verify(key, c, secret_msg);
+                if (!is_valid) {
+                    return error.VerificationFailed;
+                }
+            }
+        }.func, .{ secret_msg, blinding_factor, a, A, r });
+    }
 }
 
 fn benchmarkStep(results: *std.ArrayList(BenchmarkResult), name: []const u8, comptime func: anytype, args: anytype) !void {
