@@ -42,8 +42,8 @@ fn benchmarkAll(allocator: std.mem.Allocator, results: *std.ArrayList(BenchmarkR
     {
         const dhke = try bdhkec.Dhke.init(allocator);
         defer dhke.deinit();
-        const a = try bdhkec.SecretKey.fromSlice(&[_]u8{1} ** 32);
-        const blinding_factor = try bdhkec.SecretKey.fromSlice(&[_]u8{1} ** 32);
+        const a = try bdhkec.SecretKey.fromSlice(&a_bytes);
+        const blinding_factor = try bdhkec.SecretKey.fromSlice(&r_bytes);
 
         // Benchmark individual steps
         try benchmarkStep(results, "hashToCurveC", struct {
