@@ -1,9 +1,10 @@
 const std = @import("std");
 const bdhke = @import("bdhke.zig");
 
-const Secp256k1 = std.crypto.ecc.Secp256k1;
-const Scalar = Secp256k1.scalar.Scalar;
-const Point = Secp256k1;
+const secp256k1 = @import("secp256k1.zig");
+const Scalar = secp256k1.Scalar;
+const PublicKey = secp256k1.PublicKey;
+const SecretKey = secp256k1.SecretKey;
 
 const zul = @import("zul");
 
@@ -21,8 +22,8 @@ pub fn main() !void {
 const Context = struct {
     secret_msg: []const u8 = "test_message",
     dhke: bdhke.Dhke,
-    bf: bdhke.SecretKey,
-    a: bdhke.SecretKey,
+    bf: SecretKey,
+    a: SecretKey,
 };
 
 fn hashToCurve(ctx: Context, _: std.mem.Allocator, _: *std.time.Timer) !void {
@@ -79,8 +80,8 @@ fn benchmarkZul(allocator: std.mem.Allocator) !void {
     const r_bytes: [32]u8 = [_]u8{1} ** 32;
     const ctx = Context{
         .dhke = try bdhke.Dhke.init(allocator),
-        .a = try bdhke.SecretKey.fromSlice(&a_bytes),
-        .bf = try bdhke.SecretKey.fromSlice(&r_bytes),
+        .a = try SecretKey.fromSlice(&a_bytes),
+        .bf = try SecretKey.fromSlice(&r_bytes),
     };
     defer ctx.dhke.deinit();
 

@@ -62,24 +62,16 @@ The benchmarks will be compiled with the ReleaseFast optimization level.
 
 ### Benchmark Results
 
-The benchmark results are presented in a table format, displaying both nanosecond and millisecond timings.
+Current results:
 
-Example of a benchmark report:
-
-| Operation              | Time (us) | Time (ms) |
-| ---------------------- | --------- | --------- |
-| Hash to Curve (C)      | 7.109     | 0.007     |
-| Alice Step 1 (C)       | 23.724    | 0.024     |
-| Bob Step 2 (C)         | 22.101    | 0.022     |
-| Alice Step 3 (C)       | 25.413    | 0.025     |
-| Verify (C)             | 29.395    | 0.029     |
-| End-to-End BDHKE (C)   | 113.647   | 0.114     |
-| Hash to Curve (Zig)    | 20.255    | 0.020     |
-| Alice Step 1 (Zig)     | 20.312    | 0.020     |
-| Bob Step 2 (Zig)       | 150.031   | 0.150     |
-| Alice Step 3 (Zig)     | 150.241   | 0.150     |
-| Verify (Zig)           | 171.088   | 0.171     |
-| End-to-End BDHKE (Zig) | 503.617   | 0.504     |
+| Operation   | Time us    | Time ns      |
+| ----------- | ---------- | ------------ |
+| hashToCurve | 7.182 us   | 7181.94 ns   |
+| step1Alice  | 23.608 us  | 23608.43 ns  |
+| step2Bob    | 28.003 us  | 28002.82 ns  |
+| step3Alice  | 25.102 us  | 25101.80 ns  |
+| verify      | 29.020 us  | 29020.39 ns  |
+| e2e         | 112.626 us | 112626.12 ns |
 
 This run was performed on a MacBook Pro with an M1 chip.
 
