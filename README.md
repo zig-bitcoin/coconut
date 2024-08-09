@@ -1,6 +1,6 @@
 <div align="center">
-    <h1>Coconut</h1>
-    <h2>Cashu protocol implementation in Zig.</h2>
+    <img src="./docs/img/coconut.png" alt="coconut-logo" height="260"/>
+    <h2>Cashu wallet and mint in Zig</h2>
 
 <a href="https://github.com/AbdelStark/coconut/actions/workflows/check.yml"><img alt="GitHub Workflow Status" src="https://img.shields.io/github/actions/workflow/status/AbdelStark/coconut/check.yml?style=for-the-badge" height=30></a>
 <a href="https://ziglang.org/"> <img alt="Zig" src="https://img.shields.io/badge/zig-%23000000.svg?style=for-the-badge&logo=zig&logoColor=white" height=30></a>
@@ -11,9 +11,9 @@
 
 # About
 
-Cashu protocol implementation in Zig.
+Coconut 🥥 is a Cashu protocol implementation in Zig.
 
-For now it contains only the BDHKE implementation.
+For now it contains only the Blind Diffie-Hellmann Key Exchange (BDHKE) implementation.
 
 ## Usage
 
@@ -55,14 +55,7 @@ This project includes performance benchmarks for each step of the BDHKE process,
 To run the benchmarks on your local machine:
 
 ```sh
-# Run benchmarks without generating a report
-zig build bench
-
-# Run benchmarks and generate a CSV report
-zig build bench -- --report
-
-# Run benchmarks without generating a report (explicit)
-zig build bench -- --report=false
+zig build bench -Doptimize=ReleaseFast
 ```
 
 The benchmarks will be compiled with the ReleaseFast optimization level.
@@ -73,14 +66,20 @@ The benchmark results are presented in a table format, displaying both nanosecon
 
 Example of a benchmark report:
 
-| Operation        | Time (us) | Time (ms) |
-| ---------------- | --------- | --------- |
-| hashToCurve      | 20.320    | 0.020     |
-| step1Alice       | 20.015    | 0.020     |
-| step2Bob         | 148.145   | 0.148     |
-| step3Alice       | 149.122   | 0.149     |
-| verify           | 169.168   | 0.169     |
-| End-to-End BDHKE | 486.200   | 0.486     |
+| Operation              | Time (us) | Time (ms) |
+| ---------------------- | --------- | --------- |
+| Hash to Curve (C)      | 7.109     | 0.007     |
+| Alice Step 1 (C)       | 23.724    | 0.024     |
+| Bob Step 2 (C)         | 22.101    | 0.022     |
+| Alice Step 3 (C)       | 25.413    | 0.025     |
+| Verify (C)             | 29.395    | 0.029     |
+| End-to-End BDHKE (C)   | 113.647   | 0.114     |
+| Hash to Curve (Zig)    | 20.255    | 0.020     |
+| Alice Step 1 (Zig)     | 20.312    | 0.020     |
+| Bob Step 2 (Zig)       | 150.031   | 0.150     |
+| Alice Step 3 (Zig)     | 150.241   | 0.150     |
+| Verify (Zig)           | 171.088   | 0.171     |
+| End-to-End BDHKE (Zig) | 503.617   | 0.504     |
 
 This run was performed on a MacBook Pro with an M1 chip.
 
@@ -93,22 +92,6 @@ Machine Info:
   macOS Version: 14.5
   Zig Version: 0.14.0-dev.850+ddcb7b1c1
 ```
-
-### Benchmark Report
-
-When run with the `--report` option, a CSV file named `benchmark_report.csv` will be generated in the project root directory. This file contains the operation names and their corresponding execution times in nanoseconds.
-
-### Benchmark Results in CI
-
-The benchmarks are also run as part of the CI pipeline on GitHub Actions. The workflow runs the benchmarks with the report generation option enabled. You can view the results of the latest benchmark run in the "Actions" tab of the GitHub repository, under the "Run benchmarks with report" step of the most recent workflow run.
-
-The benchmark report CSV file is saved as an artifact and can be downloaded from the GitHub Actions page for each workflow run.
-
-### Notes on Benchmark Results
-
-- Benchmark results can vary based on the hardware and system load. For consistent comparisons, always use the same machine and ensure minimal background processes.
-- The CI benchmark results may differ from local results due to differences in hardware and environment.
-- These benchmarks are meant to provide relative performance metrics and may not represent absolute real-world performance in all scenarios.
 
 ## Resources
 
