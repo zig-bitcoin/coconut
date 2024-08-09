@@ -35,8 +35,8 @@ const BenchmarkResult = struct {
 fn benchmarkAll(allocator: std.mem.Allocator, results: *std.ArrayList(BenchmarkResult)) !void {
     // Initialize test data
     const secret_msg = "test_message";
-    const a_bytes: [32]u8 = [_]u8{0} ** 31 ++ [_]u8{1};
-    const r_bytes: [32]u8 = [_]u8{0} ** 31 ++ [_]u8{1};
+    const a_bytes: [32]u8 = [_]u8{1} ** 32;
+    const r_bytes: [32]u8 = [_]u8{1} ** 32;
 
     // c wrapped bench
     {
