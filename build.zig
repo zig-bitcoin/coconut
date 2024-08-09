@@ -47,6 +47,7 @@ pub fn build(b: *std.Build) !void {
         .target = target,
         .optimize = optimize,
     });
+    exe.linkLibrary(libsecp256k1);
 
     b.installArtifact(exe);
 
@@ -90,6 +91,8 @@ pub fn build(b: *std.Build) !void {
     });
 
     bench.linkLibrary(libsecp256k1);
+    bench.root_module.addImport("zul", b.dependency("zul", .{}).module("zul"));
+
     const run_bench = b.addRunArtifact(bench);
 
     // Add option for report generation
