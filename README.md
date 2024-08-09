@@ -1,6 +1,6 @@
 <div align="center">
-    <h1>Coconut</h1>
-    <h2>Cashu protocol implementation in Zig.</h2>
+    <img src="./docs/img/coconut.png" alt="coconut-logo" height="260"/>
+    <h2>Cashu wallet and mint in Zig</h2>
 
 <a href="https://github.com/AbdelStark/coconut/actions/workflows/check.yml"><img alt="GitHub Workflow Status" src="https://img.shields.io/github/actions/workflow/status/AbdelStark/coconut/check.yml?style=for-the-badge" height=30></a>
 <a href="https://ziglang.org/"> <img alt="Zig" src="https://img.shields.io/badge/zig-%23000000.svg?style=for-the-badge&logo=zig&logoColor=white" height=30></a>
@@ -11,7 +11,7 @@
 
 # About
 
-Cashu protocol implementation in Zig.
+Coconut 🥥 is a Cashu protocol implementation in Zig.
 
 For now it contains only the Blind Diffie-Hellmann Key Exchange (BDHKE) implementation.
 
