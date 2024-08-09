@@ -45,11 +45,5 @@ jobs:
       - name: Build and Run
         run: zig build run
 
-      - name: Run benchmarks with report
-        run: zig build bench -- --report
-
-      - name: Upload benchmark report
-        uses: actions/upload-artifact@v3
-        with:
-          name: benchmark-report
-          path: benchmark_report.csv
+      - name: Run benchmarks
+        run: zig build bench -Doptimize=ReleaseFast

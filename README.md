@@ -93,22 +93,6 @@ Machine Info:
   Zig Version: 0.14.0-dev.850+ddcb7b1c1
 ```
 
-### Benchmark Report
-
-When run with the `--report` option, a CSV file named `benchmark_report.csv` will be generated in the project root directory. This file contains the operation names and their corresponding execution times in nanoseconds.
-
-### Benchmark Results in CI
-
-The benchmarks are also run as part of the CI pipeline on GitHub Actions. The workflow runs the benchmarks with the report generation option enabled. You can view the results of the latest benchmark run in the "Actions" tab of the GitHub repository, under the "Run benchmarks with report" step of the most recent workflow run.
-
-The benchmark report CSV file is saved as an artifact and can be downloaded from the GitHub Actions page for each workflow run.
-
-### Notes on Benchmark Results
-
-- Benchmark results can vary based on the hardware and system load. For consistent comparisons, always use the same machine and ensure minimal background processes.
-- The CI benchmark results may differ from local results due to differences in hardware and environment.
-- These benchmarks are meant to provide relative performance metrics and may not represent absolute real-world performance in all scenarios.
-
 ## Resources
 
 - [Cashu documentation](https://docs.cashu.space/)
