@@ -18,14 +18,20 @@ pub fn step1Alice(secret_msg: []const u8, blinding_factor: Point) !Point {
 }
 
 /// Step 2: Bob signs the blinded message
-pub fn step2Bob(B_: Point, a: Scalar) !struct { C_: Point, e: Scalar, s: Scalar } {
+pub fn step2Bob(B_: Point, a: Scalar, generate_dleq_proof: bool) !struct { C_: Point, e: Scalar, s: Scalar } {
     const C_ = try B_.mul(a.toBytes(.little), .little);
+    if (!generate_dleq_proof) {
+        return .{ .C_ = C_, .e = Scalar.zero, .s = Scalar.zero };
+    }
+
+    // Generate DLEQ proof
     const result = try step2BobDLEQ(B_, a, C_);
-    return .{ .C_ = result.C_, .e = result.e, .s = result.s };
+
+    return .{ .C_ = C_, .e = result.e, .s = result.s };
 }
 
 /// Generates DLEQ proof
-fn step2BobDLEQ(B_: Point, a: Scalar, C_: Point) !struct { C_: Point, e: Scalar, s: Scalar } {
+fn step2BobDLEQ(B_: Point, a: Scalar, C_: Point) !struct { e: Scalar, s: Scalar } {
     const p = Scalar.random();
     const R1 = try Point.basePoint.mul(p.toBytes(.little), .little);
     const R2 = try B_.mul(p.toBytes(.little), .little);
@@ -34,7 +40,7 @@ fn step2BobDLEQ(B_: Point, a: Scalar, C_: Point) !struct { C_: Point, e: Scalar,
     const e = try hashE(&[_]Point{ R1, R2, A, C_ });
     const s = p.add(a.mul(e));
 
-    return .{ .C_ = C_, .e = e, .s = s };
+    return .{ .e = e, .s = s };
 }
 
 /// Step 3: Alice unblinds the signature
@@ -153,7 +159,7 @@ pub fn testBDHKE() !void {
     std.debug.print("Step 1 complete: Message blinded\n", .{});
 
     // Step 2: Bob signs the blinded message
-    const step2_result = try step2Bob(B_, a);
+    const step2_result = try step2Bob(B_, a, true);
     const C_ = step2_result.C_;
     const e = step2_result.e;
     const s = step2_result.s;
