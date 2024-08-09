@@ -13,7 +13,7 @@
 
 Cashu protocol implementation in Zig.
 
-For now it contains only the BDHKE implementation.
+For now it contains only the Blind Diffie-Hellmann Key Exchange (BDHKE) implementation.
 
 ## Usage
 
