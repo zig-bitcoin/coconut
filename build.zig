@@ -1,4 +1,15 @@
 const std = @import("std");
+const build_helpers = @import("build_helpers.zig");
+const package_name = "coconut";
+const package_path = "src/lib.zig";
+
+// List of external dependencies that this package requires.
+const external_dependencies = [_]build_helpers.Dependency{
+    .{
+        .name = "zig-cli",
+        .module_name = "zig-cli",
+    },
+};
 
 fn buildSecp256k1(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) !*std.Build.Step.Compile {
     const lib = b.addStaticLibrary(.{ .name = "zig-libsecp256k1", .target = target, .optimize = optimize });
@@ -25,22 +36,67 @@ fn buildSecp256k1(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std
 }
 
 pub fn build(b: *std.Build) !void {
+    // Standard target options allows the person running `zig build` to choose
+    // what target to build for. Here we do not override the defaults, which
+    // means any target is allowed, and the default is native. Other options
+    // for restricting supported target set are available.
     const target = b.standardTargetOptions(.{});
+
+    // Standard optimization options allow the person running `zig build` to select
+    // between Debug, ReleaseSafe, ReleaseFast, and ReleaseSmall. Here we do not
+    // set a preferred release mode, allowing the user to decide how to optimize.
     const optimize = b.standardOptimizeOption(.{});
+
+    // **************************************************************
+    // *            HANDLE DEPENDENCY MODULES                       *
+    // **************************************************************
+    const dependencies_opts = .{
+        .target = target,
+        .optimize = optimize,
+    };
+
+    // This array can be passed to add the dependencies to lib, executable, tests, etc using `addModule` function.
+    const deps = build_helpers.generateModuleDependencies(
+        b,
+        &external_dependencies,
+        dependencies_opts,
+    ) catch unreachable;
+
+    // **************************************************************
+    // *               COCONUT AS A MODULE                        *
+    // **************************************************************
+    // expose coconut as a module
+    _ = b.addModule(package_name, .{
+        .root_source_file = b.path(package_path),
+        .imports = deps,
+    });
 
     // libsecp256k1 static C library.
     const libsecp256k1 = try buildSecp256k1(b, target, optimize);
     b.installArtifact(libsecp256k1);
 
+    // **************************************************************
+    // *              COCONUT AS A LIBRARY                        *
+    // **************************************************************
     const lib = b.addStaticLibrary(.{
         .name = "coconut",
         .root_source_file = b.path("src/lib.zig"),
         .target = target,
         .optimize = optimize,
     });
-
+    // Add dependency modules to the library.
+    for (deps) |mod| lib.root_module.addImport(
+        mod.name,
+        mod.module,
+    );
+    // This declares intent for the library to be installed into the standard
+    // location when the user invokes the "install" step (the default step when
+    // running `zig build`).
     b.installArtifact(lib);
 
+    // **************************************************************
+    // *              COCONUT AS AN EXECUTABLE                    *
+    // **************************************************************
     const exe = b.addExecutable(.{
         .name = "coconut",
         .root_source_file = b.path("src/main.zig"),
@@ -48,6 +104,11 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize,
     });
     exe.linkLibrary(libsecp256k1);
+    // Add dependency modules to the executable.
+    for (deps) |mod| exe.root_module.addImport(
+        mod.name,
+        mod.module,
+    );
 
     b.installArtifact(exe);
 

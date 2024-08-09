@@ -11,40 +11,67 @@
 
 # About
 
-Coconut 🥥 is a Cashu protocol implementation in Zig.
+Coconut 🥥 is a Cashu Wallet and Mint implementation in Zig.
 
-For now it contains only the Blind Diffie-Hellmann Key Exchange (BDHKE) implementation.
+## CLI Usage
 
-## Usage
+The Coconut wallet provides a command-line interface for various operations. Here's how to use it:
 
-### Running
+### General Help
 
-```bash
-zig build run
-```
-
-Example output:
+To see the general help and available commands, run:
 
 ```text
-Starting BDHKE test
-Secret message: test_message
-Alice's private key (a): 0000000000000000000000000000000000000000000000000000000000000001
-Alice's public key (A): 0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798
-r private key: 0000000000000000000000000000000000000000000000000000000000000001
-Blinding factor (r): 0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798
-Blinded message (B_): 025cc16fe33b953e2ace39653efb3e7a7049711ae1d8a2f7a9108753f1cdea742b
-Step 1 complete: Message blinded
-Blinded signature (C_): 025cc16fe33b953e2ace39653efb3e7a7049711ae1d8a2f7a9108753f1cdea742b
-DLEQ proof - e: e87bf88896743cd89e8f8316811553a15d74538f205c9cff1f72ff23e624cc1f
-DLEQ proof - s: 9f546cb383df3d8c0d36c925045287c113df293c3429083d2c5728cfdbddd925
-Step 2 complete: Blinded message signed
-Alice's DLEQ verification successful
-Unblinded signature (C): 0215fdc277c704590f3c3bcc08cf9a8f748f46619b96268cece86442b6c3ac461b
-Step 3 complete: Signature unblinded
-Carol's DLEQ verification successful
-Final verification successful
-BDHKE test completed successfully
+$ coconut --help
+Version: 0.1.0
+Author: Coconut Contributors
+USAGE:
+  coconut [OPTIONS]
+COMMANDS:
+  info   Display information about the Coconut wallet
+OPTIONS:
+  -h, --help            Show this help output.
+      --color <VALUE>   When to use colors (*auto*, never, always).
 ```
+
+### Info Command
+
+The `info` command displays information about the Coconut wallet. Here's its specific help:
+
+```text
+$ coconut info --help
+USAGE:
+  coconut info [OPTIONS]
+OPTIONS:
+  -m, --mint       Fetch mint information
+  -n, --mnemonic   Show your mnemonic
+  -h, --help       Show this help output.
+```
+
+### Example Usage
+
+Here's an example of using the `info` command with the `--mnemonic` option:
+
+```text
+$ coconut info --mnemonic
+
+Version: 0.1.0
+Wallet: coconut
+Cashu dir: /Users/abdel/Library/Application Support/coconut
+Mints:
+    - URL: https://example.com:3338
+        - Keysets:
+            - ID: example_id  unit: sat  active: True   fee (ppk): 0
+Mnemonic:
+ - example word1 word2 word3 ...
+Nostr:
+    - Public key: npub1example...
+    - Relays: wss://example1.com, wss://example2.com
+```
+
+This command displays general information about the wallet, including the version, wallet name, Cashu directory, mint information, and Nostr details. The `--mnemonic` option additionally displays the wallet's mnemonic phrase.
+
+Note: Be cautious when using the `--mnemonic` option, as it displays sensitive information. Make sure you're in a secure environment when viewing your mnemonic.
 
 ## Benchmarks
 
