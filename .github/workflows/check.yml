@@ -43,7 +43,7 @@ jobs:
             ${{ runner.os }}-zig-build-
 
       - name: Build and Run
-        run: zig build run
+        run: zig build run -- info
 
       - name: Run benchmarks
         run: zig build bench -Doptimize=ReleaseFast
