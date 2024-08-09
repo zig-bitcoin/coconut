@@ -117,11 +117,11 @@ fn benchmarkAll(allocator: std.mem.Allocator, results: *std.ArrayList(BenchmarkR
     const B_ = try bdhke.step1Alice(secret_msg, blinding_factor);
     try benchmarkStep(results, "step2Bob", struct {
         fn func(b: Point, key: Scalar) !void {
-            _ = try bdhke.step2Bob(b, key);
+            _ = try bdhke.step2Bob(b, key, false);
         }
     }.func, .{ B_, a });
 
-    const step2_result = try bdhke.step2Bob(B_, a);
+    const step2_result = try bdhke.step2Bob(B_, a, false);
     try benchmarkStep(results, "step3Alice", struct {
         fn func(c: Point, key: Scalar, pub_key: Point) !void {
             _ = try bdhke.step3Alice(c, key, pub_key);
@@ -139,7 +139,7 @@ fn benchmarkAll(allocator: std.mem.Allocator, results: *std.ArrayList(BenchmarkR
     try benchmarkStep(results, "End-to-End BDHKE", struct {
         fn func(msg: []const u8, bf: Point, key: Scalar, pub_key: Point, _r: Scalar) !void {
             const b = try bdhke.step1Alice(msg, bf);
-            const step2_res = try bdhke.step2Bob(b, key);
+            const step2_res = try bdhke.step2Bob(b, key, false);
             const c = try bdhke.step3Alice(step2_res.C_, _r, pub_key);
             const is_valid = try bdhke.verify(key, c, secret_msg);
             // Fail if the verification fails

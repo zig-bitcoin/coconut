@@ -73,14 +73,14 @@ The benchmark results are presented in a table format, displaying both nanosecon
 
 Example of a benchmark report:
 
-| Operation        | Time (ns) | Time (ms) |
-| ---------------- | --------: | --------: |
-| hashToCurve      |     21449 |     0.021 |
-| step1Alice       |     20671 |     0.021 |
-| step2Bob         |    647647 |     0.648 |
-| step3Alice       |    149790 |     0.150 |
-| verify           |    170793 |     0.171 |
-| End-to-End BDHKE |    992257 |     0.992 |
+| Operation        | Time (us) | Time (ms) |
+| ---------------- | --------- | --------- |
+| hashToCurve      | 20.320    | 0.020     |
+| step1Alice       | 20.015    | 0.020     |
+| step2Bob         | 148.145   | 0.148     |
+| step3Alice       | 149.122   | 0.149     |
+| verify           | 169.168   | 0.169     |
+| End-to-End BDHKE | 486.200   | 0.486     |
 
 This run was performed on a MacBook Pro with an M1 chip.
 
