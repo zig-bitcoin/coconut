@@ -75,6 +75,9 @@ pub fn build(b: *std.Build) !void {
     const libsecp256k1 = try buildSecp256k1(b, target, optimize);
     b.installArtifact(libsecp256k1);
 
+    // httpz dependency
+    const httpz_module = b.dependency("httpz", .{ .target = target, .optimize = optimize }).module("httpz");
+
     // **************************************************************
     // *              COCONUT AS A LIBRARY                        *
     // **************************************************************
@@ -95,32 +98,66 @@ pub fn build(b: *std.Build) !void {
     b.installArtifact(lib);
 
     // **************************************************************
-    // *              COCONUT AS AN EXECUTABLE                    *
+    // *              COCONUT-MINT AS AN EXECUTABLE                    *
     // **************************************************************
-    const exe = b.addExecutable(.{
-        .name = "coconut",
-        .root_source_file = b.path("src/main.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    exe.linkLibrary(libsecp256k1);
-    // Add dependency modules to the executable.
-    for (deps) |mod| exe.root_module.addImport(
-        mod.name,
-        mod.module,
-    );
+    {
+        const exe = b.addExecutable(.{
+            .name = "coconut-mint",
+            .root_source_file = b.path("src/mint.zig"),
+            .target = target,
+            .optimize = optimize,
+        });
+        exe.linkLibrary(libsecp256k1);
+        exe.root_module.addImport("httpz", httpz_module);
 
-    b.installArtifact(exe);
+        // Add dependency modules to the executable.
+        for (deps) |mod| exe.root_module.addImport(
+            mod.name,
+            mod.module,
+        );
 
-    const run_cmd = b.addRunArtifact(exe);
-    run_cmd.step.dependOn(b.getInstallStep());
+        b.installArtifact(exe);
 
-    if (b.args) |args| {
-        run_cmd.addArgs(args);
+        const run_cmd = b.addRunArtifact(exe);
+        run_cmd.step.dependOn(b.getInstallStep());
+
+        if (b.args) |args| {
+            run_cmd.addArgs(args);
+        }
+
+        const run_step = b.step("run-mint", "Run coconut-mint");
+        run_step.dependOn(&run_cmd.step);
     }
 
-    const run_step = b.step("run", "Run the app");
-    run_step.dependOn(&run_cmd.step);
+    // **************************************************************
+    // *              COCONUT AS AN EXECUTABLE                    *
+    // **************************************************************
+    {
+        const exe = b.addExecutable(.{
+            .name = "coconut",
+            .root_source_file = b.path("src/main.zig"),
+            .target = target,
+            .optimize = optimize,
+        });
+        exe.linkLibrary(libsecp256k1);
+        // Add dependency modules to the executable.
+        for (deps) |mod| exe.root_module.addImport(
+            mod.name,
+            mod.module,
+        );
+
+        b.installArtifact(exe);
+
+        const run_cmd = b.addRunArtifact(exe);
+        run_cmd.step.dependOn(b.getInstallStep());
+
+        if (b.args) |args| {
+            run_cmd.addArgs(args);
+        }
+
+        const run_step = b.step("run", "Run the app");
+        run_step.dependOn(&run_cmd.step);
+    }
 
     const lib_unit_tests = b.addTest(.{
         .root_source_file = b.path("src/lib.zig"),

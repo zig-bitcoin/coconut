@@ -138,6 +138,10 @@ pub const PublicKey = struct {
 
         return error.InvalidPublicKeySum;
     }
+
+    pub fn toString(self: @This()) [33 * 2]u8 {
+        return std.fmt.bytesToHex(&self.serialize(), .lower);
+    }
 };
 
 pub const SecretKey = struct {
@@ -164,5 +168,9 @@ pub const SecretKey = struct {
 
     pub inline fn secretBytes(self: @This()) [32]u8 {
         return self.data;
+    }
+
+    pub fn toString(self: @This()) [32 * 2]u8 {
+        return std.fmt.bytesToHex(&self.data, .lower);
     }
 };

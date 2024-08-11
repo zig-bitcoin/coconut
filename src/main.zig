@@ -1,6 +1,6 @@
 const std = @import("std");
 const cli = @import("zig-cli");
-const bdhke = @import("bdhke.zig");
+const bdhke = @import("core/bdhke.zig");
 
 // Configuration settings for the CLI
 const Args = struct {
@@ -13,6 +13,7 @@ var cfg: Args = .{};
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
+
     const allocator = arena.allocator();
 
     var r = try cli.AppRunner.init(allocator);
