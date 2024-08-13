@@ -1,6 +1,7 @@
 const std = @import("std");
 const mint_lib = @import("mint.zig");
 const httpz = @import("httpz");
+const routes = @import("routes/lib.zig");
 
 pub fn runServer(
     allocator: std.mem.Allocator,
@@ -19,25 +20,20 @@ pub fn runServer(
     // server.notFound(notFound);
 
     // overwrite the default error handler
-    // server.errorHandler(errorHandler);
+    server.errorHandler(errorHandler);
 
     var router = server.router();
 
-    router.get("/v1/keys", getKeys);
+    router.get("/v1/keys", routes.default.getKeys);
+    router.get("/v1/keys/:id", routes.default.getKeysById);
+    router.get("/v1/keysets", routes.default.getKeysets);
 
     return server.listen();
 }
 
-fn getKeys(mint: *const mint_lib.Mint, req: *httpz.Request, res: *httpz.Response) !void {
-    _ = req; // autofix
-    _ = mint; // autofix
-    // status code 200 is implicit.
-
-    // The json helper will automatically set the res.content_type = httpz.ContentType.JSON;
-    // Here we're passing an inferred anonymous structure, but you can pass anytype
-    // (so long as it can be serialized using std.json.stringify)
-
-    std.log.debug("salam get keys", .{});
-
-    try res.json(.{ .name = "Teg" }, .{});
+// note that the error handler return `void` and not `!void`
+fn errorHandler(_: *const mint_lib.Mint, req: *httpz.Request, res: *httpz.Response, err: anyerror) void {
+    res.status = 500;
+    res.body = @errorName(err);
+    std.log.warn("httpz: unhandled exception for request: {s}\nErr: {}", .{ req.url.raw, err });
 }

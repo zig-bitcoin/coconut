@@ -78,6 +78,12 @@ pub fn build(b: *std.Build) !void {
     // httpz dependency
     const httpz_module = b.dependency("httpz", .{ .target = target, .optimize = optimize }).module("httpz");
 
+    // postgresql dependency
+    const pg = b.dependency("pg", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
     // **************************************************************
     // *              COCONUT AS A LIBRARY                        *
     // **************************************************************
@@ -109,6 +115,7 @@ pub fn build(b: *std.Build) !void {
         });
         exe.linkLibrary(libsecp256k1);
         exe.root_module.addImport("httpz", httpz_module);
+        exe.root_module.addImport("pg", pg.module("pg"));
 
         // Add dependency modules to the executable.
         for (deps) |mod| exe.root_module.addImport(

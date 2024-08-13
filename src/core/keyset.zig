@@ -3,6 +3,7 @@ const std = @import("std");
 const Secp256k1 = @import("secp256k1.zig").Secp256k1;
 const SecretKey = @import("secp256k1.zig").SecretKey;
 const PublicKey = @import("secp256k1.zig").PublicKey;
+const primitives = @import("primitives.zig");
 const MAX_ORDER: u64 = 64;
 
 pub const MintKeyset = struct {
@@ -34,6 +35,16 @@ pub const MintKeyset = struct {
         self.private_keys.deinit();
         self.public_keys.deinit();
     }
+};
+
+pub const Keyset = struct {
+    id: [16]u8,
+    unit: primitives.CurrencyUnit,
+    active: bool,
+};
+
+pub const Keysets = struct {
+    keysets: []const Keyset,
 };
 
 const sha256 = std.crypto.hash.sha2.Sha256;
@@ -97,7 +108,7 @@ pub fn derivePubkeys(allocator: std.mem.Allocator, keys: std.AutoHashMap(u64, Se
     return res;
 }
 
-fn deriveKeysetId(allocator: std.mem.Allocator, keys: std.AutoHashMap(u64, PublicKey)) ![16]u8 {
+pub fn deriveKeysetId(allocator: std.mem.Allocator, keys: std.AutoHashMap(u64, PublicKey)) ![16]u8 {
     var keys_arr = try std.ArrayList(u64).initCapacity(allocator, keys.count());
     defer keys_arr.deinit();
 
@@ -123,6 +134,47 @@ fn deriveKeysetId(allocator: std.mem.Allocator, keys: std.AutoHashMap(u64, Publi
 
     buf[2..16].* = hashed_pubkeys[0..14].*;
     return buf;
+}
+
+// stringifyMapOfPubkeys - stringify to json map of pub keys, caller own result json slice, should deallocate it through passed allocator
+pub fn stringifyMapOfPubkeys(allocator: std.mem.Allocator, pub_keys: std.AutoHashMap(u64, PublicKey)) ![]u8 {
+    var result = std.ArrayList(u8).init(allocator);
+    errdefer result.deinit();
+
+    var ws = std.json.writeStream(result.writer(), .{});
+    errdefer ws.deinit();
+
+    try ws.beginObject();
+
+    var buf: [25]u8 = undefined;
+
+    var it = pub_keys.iterator();
+    while (it.next()) |e| {
+        const n = std.fmt.formatIntBuf(&buf, e.key_ptr.*, 10, .lower, .{});
+
+        try ws.objectField(buf[0..n]);
+        try ws.write(e.value_ptr.*);
+    }
+
+    try ws.endObject();
+
+    return try result.toOwnedSlice();
+}
+
+pub fn stringifyMapOfPubkeysWriter(out: anytype, pub_keys: std.AutoHashMap(u64, PublicKey)) !void {
+    try out.beginObject();
+
+    var buf: [25]u8 = undefined;
+
+    var it = pub_keys.iterator();
+    while (it.next()) |e| {
+        const n = std.fmt.formatIntBuf(&buf, e.key_ptr.*, 10, .lower, .{});
+
+        try out.objectField(buf[0..n]);
+        try out.write(e.value_ptr.*);
+    }
+
+    try out.endObject();
 }
 
 pub fn parseMapOfPubkeys(allocator: std.mem.Allocator, json: []const u8) !std.AutoHashMap(u64, PublicKey) {
@@ -285,4 +337,20 @@ test "test_derive_keyset_id_long" {
     const keyset_id = try deriveKeysetId(std.testing.allocator, pubs);
 
     try std.testing.expectEqualSlices(u8, "000f01df73ea149a", &keyset_id);
+
+    // checking encoding / decoding
+    const json = try stringifyMapOfPubkeys(std.testing.allocator, pubs);
+    defer std.testing.allocator.free(json);
+
+    var pubs_dec = try parseMapOfPubkeys(std.testing.allocator, json);
+    defer pubs_dec.deinit();
+
+    try std.testing.expectEqual(pubs.count(), pubs_dec.count());
+
+    var it = pubs_dec.iterator();
+
+    while (it.next()) |e| {
+        const v = pubs.get(e.key_ptr.*) orelse return error.KeyNotFound;
+        try std.testing.expectEqual(v, e.value_ptr.*);
+    }
 }

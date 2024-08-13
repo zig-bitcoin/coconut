@@ -6,6 +6,10 @@ pub const MintConfig = struct {
     // pub info: MintInfoConfig,
     // pub lightning_fee: LightningFeeConfig,
     server: ServerConfig = .{},
+
+    database: DatabaseConfig = .{
+        .db_url = "postgres://postgres:postgres@coconut-mint-db/coconut-mint",
+    },
     // pub btconchain_backend: Option<BtcOnchainConfig>,
     // pub lightning_backend: Option<LightningType>,
     // pub tracing: Option<TracingConfig>,
@@ -24,4 +28,10 @@ pub const ServerConfig = struct {
     port: u16 = 3338,
     serve_wallet_path: ?[]const u8 = null,
     api_prefix: ?[]const u8 = null,
+};
+
+pub const DatabaseConfig = struct {
+    db_url: []const u8,
+
+    max_connections: u32 = 5,
 };
