@@ -27,6 +27,7 @@ pub fn runServer(
     router.get("/v1/keys", routes.default.getKeys);
     router.get("/v1/keys/:id", routes.default.getKeysById);
     router.get("/v1/keysets", routes.default.getKeysets);
+    router.post("/v1/swap", routes.default.swap);
 
     return server.listen();
 }
@@ -35,5 +36,6 @@ pub fn runServer(
 fn errorHandler(_: *const mint_lib.Mint, req: *httpz.Request, res: *httpz.Response, err: anyerror) void {
     res.status = 500;
     res.body = @errorName(err);
+
     std.log.warn("httpz: unhandled exception for request: {s}\nErr: {}", .{ req.url.raw, err });
 }

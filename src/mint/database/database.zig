@@ -1,7 +1,7 @@
 const std = @import("std");
 const core = @import("../../core/lib.zig");
 
-const Tx = struct {
+pub const Tx = struct {
     // These two fields are the same as before
     ptr: *anyopaque,
     commitFn: *const fn (ptr: *anyopaque) anyerror!void,
@@ -52,7 +52,7 @@ const Tx = struct {
     }
 };
 
-const Database = struct {
+pub const Database = struct {
     // These two fields are the same as before
     ptr: *anyopaque,
     beginTxFn: *const fn (ptr: *anyopaque, allocator: std.mem.Allocator) anyerror!Tx,
@@ -115,7 +115,7 @@ const Database = struct {
     }
 };
 
-const InMemory = struct {
+pub const InMemory = struct {
     const Self = @This();
 
     const BaseTx = struct {

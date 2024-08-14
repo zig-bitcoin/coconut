@@ -22,6 +22,13 @@ pub const Proof = struct {
             },
         ),
     );
+
+    pub fn totalAmount(proofs: []const Proof) u64 {
+        var total: u64 = 0;
+
+        for (proofs) |proof| total += proof.amount;
+        return total;
+    }
 };
 
 // currently not implemnted

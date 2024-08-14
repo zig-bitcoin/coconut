@@ -1,5 +1,32 @@
 const std = @import("std");
 
+pub fn JsonArrayList(comptime T: type) type {
+    return struct {
+        const Self = @This();
+
+        value: std.ArrayList(T),
+
+        pub fn jsonParse(allocator: std.mem.Allocator, source: anytype, options: std.json.ParseOptions) !Self {
+            errdefer std.log.err("ssssaaaa", .{});
+            if (try source.next() != .array_begin) return error.UnexpectedToken;
+
+            var result = std.ArrayList(T).init(allocator);
+            errdefer result.deinit();
+
+            while (try source.peekNextTokenType() != .array_end) {
+                const val = try std.json.innerParse(T, allocator, source, options);
+
+                try result.append(val);
+            }
+
+            // array_end
+            _ = try source.next();
+
+            return .{ .value = result };
+        }
+    };
+}
+
 pub fn fieldType(comptime T: type, comptime name: []const u8) ?type {
     inline for (std.meta.fields(T)) |field| {
         if (std.mem.eql(u8, field.name, name))
@@ -72,6 +99,7 @@ pub fn RenameJsonField(comptime T: type, comptime field_from_to: std.StaticStrin
 
             return res;
         }
+
         pub fn jsonStringify(self: anytype, out: anytype) !void {
             try out.beginObject();
 

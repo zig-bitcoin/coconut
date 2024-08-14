@@ -48,3 +48,20 @@ pub fn getKeysById(mint: *const mint_lib.Mint, req: *httpz.Request, res: *httpz.
         .keys = mint.keyset.public_keys,
     }}), .{});
 }
+
+pub fn swap(mint: *const mint_lib.Mint, req: *httpz.Request, res: *httpz.Response) !void {
+    // TODO figure out what error in parsing
+    // status code 200 is implicit.
+
+    // The json helper will automatically set the res.content_type = httpz.ContentType.JSON;
+    // Here we're passing an inferred anonymous structure, but you can pass anytype
+    // (so long as it can be serialized using std.json.stringify)
+
+    // dont need to call deinit because res.allocator is arena
+    const data = try std.json.parseFromSlice(core.primitives.PostSwapRequest, res.arena, req.body().?, .{});
+
+    // not deallocating response due arena res
+    const response = try mint.swap(res.arena, data.value.inputs.value.items, data.value.outputs.value.items, mint.keyset);
+
+    try res.json(.{ .signature = response }, .{});
+}

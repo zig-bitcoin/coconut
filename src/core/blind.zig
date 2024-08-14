@@ -14,7 +14,7 @@ pub fn fieldType(comptime T: type, comptime name: []const u8) ?type {
 pub const BlindedSignature = struct {
     amount: u64,
     c_: secp256k1.PublicKey,
-    id: []const u8,
+    id: [16]u8,
 
     pub usingnamespace @import("../helper/helper.zig").RenameJsonField(
         @This(),
@@ -26,6 +26,13 @@ pub const BlindedSignature = struct {
             },
         ),
     );
+
+    pub fn totalAmount(data: []const BlindedSignature) u64 {
+        var amount: u64 = 0;
+        for (data) |x| amount += x.amount;
+
+        return amount;
+    }
 };
 
 pub const BlindedMessage = struct {
@@ -43,6 +50,13 @@ pub const BlindedMessage = struct {
             },
         ),
     );
+
+    pub fn totalAmount(data: []const BlindedMessage) u64 {
+        var amount: u64 = 0;
+        for (data) |x| amount += x.amount;
+
+        return amount;
+    }
 };
 
 test "blind serialize" {

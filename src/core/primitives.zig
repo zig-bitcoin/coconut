@@ -1,6 +1,9 @@
 const std = @import("std");
 const PublicKey = @import("secp256k1.zig").PublicKey;
 const keyset = @import("keyset.zig");
+const Proof = @import("proof.zig").Proof;
+const blind = @import("blind.zig");
+const helper = @import("../helper/helper.zig");
 
 pub const CurrencyUnit = enum(u8) {
     sat,
@@ -40,5 +43,15 @@ pub const KeyResponse = struct {
         try keyset.stringifyMapOfPubkeysWriter(out, self.keys);
 
         try out.endObject();
+    }
+};
+
+pub const PostSwapRequest = struct {
+    inputs: helper.JsonArrayList(Proof),
+    outputs: helper.JsonArrayList(blind.BlindedMessage),
+
+    pub fn deinit(self: @This()) void {
+        self.inputs.value.deinit();
+        self.outputs.value.deinit();
     }
 };
