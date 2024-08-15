@@ -3,19 +3,15 @@ const std = @import("std");
 pub const MintConfig = struct {
     privatekey: []const u8,
     derivation_path: ?[]const u8 = null,
-    // pub info: MintInfoConfig,
-    // pub lightning_fee: LightningFeeConfig,
     server: ServerConfig = .{},
 
     database: DatabaseConfig = .{
-        .db_url = "postgres://postgres:postgres@coconut-mint-db/coconut-mint",
+        // TODO: i think we need to split it to another entity in main
+        .db_url = "some-db-configuration",
     },
-    // pub btconchain_backend: Option<BtcOnchainConfig>,
-    // pub lightning_backend: Option<LightningType>,
-    // pub tracing: Option<TracingConfig>,
-    // pub database: DatabaseConfig,
 
     pub fn readConfigWithDefaults(_: std.mem.Allocator) !MintConfig {
+        // TODO read from cli
         // so we here need to read configuration
         return .{
             .privatekey = "my_private_key",
