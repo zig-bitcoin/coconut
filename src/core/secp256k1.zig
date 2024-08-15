@@ -50,6 +50,24 @@ pub const Scalar = struct {
 pub const PublicKey = struct {
     pk: secp256k1.secp256k1_pubkey,
 
+    // json serializing func
+    pub fn jsonStringify(self: PublicKey, out: anytype) !void {
+        try out.write(std.fmt.bytesToHex(&self.serialize(), .lower));
+    }
+
+    pub fn jsonParse(_: std.mem.Allocator, source: anytype, _: std.json.ParseOptions) !@This() {
+        switch (try source.next()) {
+            .string => |s| {
+                var hex_buffer: [60]u8 = undefined;
+
+                const hex = std.fmt.hexToBytes(&hex_buffer, s) catch return error.UnexpectedToken;
+
+                return PublicKey.fromSlice(hex) catch error.UnexpectedToken;
+            },
+            else => return error.UnexpectedToken,
+        }
+    }
+
     pub fn fromSlice(c: []const u8) !@This() {
         var pk: secp256k1.secp256k1_pubkey = .{};
 
@@ -120,6 +138,10 @@ pub const PublicKey = struct {
 
         return error.InvalidPublicKeySum;
     }
+
+    pub fn toString(self: @This()) [33 * 2]u8 {
+        return std.fmt.bytesToHex(&self.serialize(), .lower);
+    }
 };
 
 pub const SecretKey = struct {
@@ -146,5 +168,9 @@ pub const SecretKey = struct {
 
     pub inline fn secretBytes(self: @This()) [32]u8 {
         return self.data;
+    }
+
+    pub fn toString(self: @This()) [32 * 2]u8 {
+        return std.fmt.bytesToHex(&self.data, .lower);
     }
 };
