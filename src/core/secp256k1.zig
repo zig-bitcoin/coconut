@@ -39,6 +39,62 @@ pub const Secp256k1 = struct {
     }
 };
 
+/// A tag used for recovering the public key from a compact signature.
+pub const RecoveryId = struct {
+    value: i32,
+
+    /// Allows library users to create valid recovery IDs from i32.
+    pub fn fromI32(id: i32) !RecoveryId {
+        return switch (id) {
+            0...3 => .{ .value = id },
+            else => error.InvalidRecoveryId,
+        };
+    }
+
+    pub fn toI32(self: RecoveryId) i32 {
+        return self.value;
+    }
+};
+
+/// An ECDSA signature with a recovery ID for pubkey recovery.
+pub const RecoverableSignature = struct {
+    sig: secp256k1.secp256k1_ecdsa_recoverable_signature,
+
+    /// Converts a compact-encoded byte slice to a signature. This
+    /// representation is nonstandard and defined by the libsecp256k1 library.
+    pub fn fromCompact(data: []const u8, recid: RecoveryId) !RecoverableSignature {
+        if (data.len == 0) {
+            return error.InvalidSignature;
+        }
+
+        var ret = secp256k1.secp256k1_ecdsa_recoverable_signature{};
+
+        if (data.len != 64) {
+            return error.InvalidSignature;
+        } else if (secp256k1.secp256k1_ecdsa_recoverable_signature_parse_compact(
+            secp256k1.secp256k1_context_no_precomp,
+            &ret,
+            data.ptr,
+            recid.value,
+        ) == 1) {
+            return .{ .sig = ret };
+        } else {
+            return error.InvalidSignature;
+        }
+    }
+
+    /// Serializes the recoverable signature in compact format.
+    pub fn serializeCompact(self: RecoverableSignature) !struct { RecoveryId, [64]u8 } {
+        var ret = [_]u8{0} ** 64;
+        var recid: i32 = 0;
+
+        const err = secp256k1.secp256k1_ecdsa_recoverable_signature_serialize_compact(secp256k1.secp256k1_context_no_precomp, &ret, &recid, &self.sig);
+        std.debug.assert(err == 1);
+
+        return .{ .{ .value = recid }, ret };
+    }
+};
+
 pub const Scalar = struct {
     data: [32]u8,
 
