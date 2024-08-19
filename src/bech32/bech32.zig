@@ -445,6 +445,65 @@ pub fn decodeWithoutChecksum(allocator: std.mem.Allocator, s: []const u8) Error!
     return splitAndDecode(allocator, s);
 }
 
+/// Convert base32 to base256, removes null-padding if present, returns
+/// `Err(Error::InvalidPadding)` if padding bits are unequal `0`
+pub fn arrayListFromBase32(allocator: std.mem.Allocator, b: []const u5) !std.ArrayList(u8) {
+    return convertBits(u5, allocator, b, 5, 8, false);
+}
+
+/// Convert between bit sizes
+///
+/// # Errors
+/// * `Error::InvalidData` if any element of `data` is out of range
+/// * `Error::InvalidPadding` if `pad == false` and the padding bits are not `0`
+///
+/// # Panics
+/// Function will panic if attempting to convert `from` or `to` a bit size that
+/// is 0 or larger than 8 bits.
+///
+/// # Examples
+///
+/// ```zig
+/// const base5 = try convertBits(u8, allocator, &.{0xff}, 8, 5, true);
+/// std.testing.expectEqualSlices(u8, base5.items, &.{0x1f, 0x1c});
+/// ```
+pub fn convertBits(comptime T: type, allocator: std.mem.Allocator, data: []const T, from: u32, to: u32, pad: bool) !std.ArrayList(u8) {
+    if (from > 8 or to > 8 or from == 0 or to == 0) {
+        @panic("convert_bits `from` and `to` parameters 0 or greater than 8");
+    }
+
+    var acc: u32 = 0;
+    var bits: u32 = 0;
+    var ret = std.ArrayList(u8).init(allocator);
+    errdefer ret.deinit();
+
+    const maxv: u32 = std.math.shl(u32, 1, to) - 1;
+    for (data) |value| {
+        const v: u32 = @intCast(value);
+        if (std.math.shr(u32, v, from) != 0) {
+            // Input value exceeds `from` bit size
+            return error.InvalidData;
+        }
+        acc = std.math.shl(u32, acc, from) | v;
+        bits += from;
+
+        while (bits >= to) {
+            bits -= to;
+            try ret.append(@truncate(std.math.shr(u32, acc, bits) & maxv));
+        }
+    }
+
+    if (pad) {
+        if (bits > 0) {
+            try ret.append(@truncate(std.math.shl(u32, acc, to - bits) & maxv));
+        }
+    } else if (bits >= from or (std.math.shl(u32, acc, to - bits) & maxv) != 0) {
+        return error.InvalidPadding;
+    }
+
+    return ret;
+}
+
 test "encode" {
     try std.testing.expectError(
         error.InvalidLength,
