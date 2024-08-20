@@ -11,7 +11,14 @@ pub fn main() !void {
     //
     const cfg = try mint.config.MintConfig.readConfigWithDefaults(allocator);
 
-    var m = try mint.Mint.init(allocator, cfg);
+    var lightning = try mint.lightning.lnbits.LnBitsLightning.init(allocator, "LNBITS_ADMIN_KEY", "http://localhost:5000");
+    defer lightning.deinit();
+
+    var m = try mint.Mint.init(
+        allocator,
+        cfg,
+        lightning.lightning(),
+    );
     defer m.deinit();
 
     try mint.server.runServer(allocator, &m);

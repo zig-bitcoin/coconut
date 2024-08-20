@@ -84,6 +84,11 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize,
     });
 
+    const zul = b.dependency("zul", .{
+        .target = target,
+        .optimize = optimize,
+    }).module("zul");
+
     // **************************************************************
     // *              COCONUT AS A LIBRARY                        *
     // **************************************************************
@@ -104,6 +109,33 @@ pub fn build(b: *std.Build) !void {
     b.installArtifact(lib);
 
     // **************************************************************
+    // *              CHECK STEP AS AN EXECUTABLE                   *
+    // **************************************************************
+    // for lsp build on save step
+    {
+        const exe = b.addExecutable(.{
+            .name = "coconut-mint",
+            .root_source_file = b.path("src/mint.zig"),
+            .target = target,
+            .optimize = optimize,
+        });
+        exe.linkLibrary(libsecp256k1);
+        exe.root_module.addImport("httpz", httpz_module);
+        exe.root_module.addImport("pg", pg.module("pg"));
+
+        // Add dependency modules to the executable.
+        for (deps) |mod| exe.root_module.addImport(
+            mod.name,
+            mod.module,
+        );
+
+        // These two lines you might want to copy
+        // (make sure to rename 'exe_check')
+        const check = b.step("check", "Check if foo compiles");
+        check.dependOn(&exe.step);
+    }
+
+    // **************************************************************
     // *              COCONUT-MINT AS AN EXECUTABLE                    *
     // **************************************************************
     {
@@ -115,6 +147,7 @@ pub fn build(b: *std.Build) !void {
         });
         exe.linkLibrary(libsecp256k1);
         exe.root_module.addImport("httpz", httpz_module);
+        exe.root_module.addImport("zul", zul);
         exe.root_module.addImport("pg", pg.module("pg"));
 
         // Add dependency modules to the executable.
@@ -172,6 +205,8 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize,
     });
     lib_unit_tests.linkLibrary(libsecp256k1);
+    lib_unit_tests.root_module.addImport("zul", zul);
+    lib_unit_tests.root_module.addImport("httpz", httpz_module);
 
     const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);
 
@@ -196,7 +231,7 @@ pub fn build(b: *std.Build) !void {
     });
 
     bench.linkLibrary(libsecp256k1);
-    bench.root_module.addImport("zul", b.dependency("zul", .{}).module("zul"));
+    bench.root_module.addImport("zul", zul);
 
     const run_bench = b.addRunArtifact(bench);
 

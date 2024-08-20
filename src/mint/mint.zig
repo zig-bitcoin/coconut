@@ -2,6 +2,8 @@ const std = @import("std");
 
 const core = @import("../core/lib.zig");
 const database = @import("database/database.zig");
+const Lightning = @import("lightning/lib.zig").Lightning;
+const model = @import("model.zig");
 
 const MintConfig = @import("config.zig").MintConfig;
 
@@ -13,9 +15,10 @@ pub const Mint = struct {
     db: database.Database,
     dhke: core.Dhke,
     allocator: std.mem.Allocator,
+    lightning: Lightning,
 
     // init - initialized Mint using config
-    pub fn init(allocator: std.mem.Allocator, config: MintConfig) !Mint {
+    pub fn init(allocator: std.mem.Allocator, config: MintConfig, lightning: Lightning) !Mint {
         var keyset = try core.keyset.MintKeyset.init(
             allocator,
             config.privatekey,
@@ -32,6 +35,7 @@ pub const Mint = struct {
             .db = db,
             .allocator = allocator,
             .dhke = try core.Dhke.init(allocator),
+            .lightning = lightning,
         };
     }
 
@@ -117,5 +121,26 @@ pub const Mint = struct {
         try tx.commit();
 
         return promises;
+    }
+
+    pub fn createInvoice(
+        self: *const Self,
+        allocator: std.mem.Allocator,
+        key: []const u8,
+        amount: u64,
+    ) !model.CreateInvoiceResult {
+        var tx = try self.db.beginTx(allocator);
+
+        const inv = try self.lightning.createInvoice(allocator, amount);
+        errdefer inv.deinit(allocator);
+
+        try self.db.addPendingInvoice(allocator, tx, key, .{
+            .amount = amount,
+            .payment_request = inv.payment_request,
+        });
+
+        try tx.commit();
+
+        return inv;
     }
 };

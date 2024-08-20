@@ -4,6 +4,7 @@ const keyset = @import("keyset.zig");
 const Proof = @import("proof.zig").Proof;
 const blind = @import("blind.zig");
 const helper = @import("../helper/helper.zig");
+const zul = @import("zul");
 
 pub const CurrencyUnit = enum(u8) {
     sat,
@@ -53,5 +54,48 @@ pub const PostSwapRequest = struct {
     pub fn deinit(self: @This()) void {
         self.inputs.value.deinit();
         self.outputs.value.deinit();
+    }
+};
+
+pub const Bolt11MintQuote = struct {
+    quote_id: zul.UUID,
+    payment_request: []const u8,
+    expiry: u64,
+    paid: bool,
+
+    pub fn clone(self: *const @This(), allocator: std.mem.Allocator) !@This() {
+        const pr = try allocator.alloc(u8, self.payment_request.len);
+        errdefer allocator.free(pr);
+
+        @memcpy(pr, self.payment_request);
+        var cl = self.*;
+        cl.payment_request = pr;
+
+        return cl;
+    }
+
+    pub fn deinit(self: @This(), allocator: std.mem.Allocator) void {
+        allocator.free(self.payment_request);
+    }
+};
+
+pub const PostMintQuoteBolt11Request = struct {
+    amount: u64,
+    unit: CurrencyUnit,
+};
+
+pub const PostMintQuoteBolt11Response = struct {
+    quote: []const u8,
+    request: []const u8,
+    paid: bool,
+    expiry: ?u64,
+
+    pub fn from(v: Bolt11MintQuote) PostMintQuoteBolt11Response {
+        return .{
+            .quote = &v.quote_id.toHex(.lower),
+            .request = v.payment_request,
+            .paid = v.paid,
+            .expiry = v.expiry,
+        };
     }
 };

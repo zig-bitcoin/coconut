@@ -2,6 +2,7 @@ const std = @import("std");
 const httpz = @import("httpz");
 const mint_lib = @import("../mint.zig");
 const core = @import("../../core/lib.zig");
+const zul = @import("zul");
 
 pub fn getKeys(mint: *const mint_lib.Mint, req: *httpz.Request, res: *httpz.Response) !void {
     _ = req; // autofix
@@ -64,4 +65,38 @@ pub fn swap(mint: *const mint_lib.Mint, req: *httpz.Request, res: *httpz.Respons
     const response = try mint.swap(res.arena, data.value.inputs.value.items, data.value.outputs.value.items, mint.keyset);
 
     try res.json(.{ .signature = response }, .{});
+}
+
+pub fn mintQuoteBolt11(mint: *const mint_lib.Mint, req: *httpz.Request, res: *httpz.Response) !void {
+    // TODO figure out what error in parsing
+    // status code 200 is implicit.
+
+    // The json helper will automatically set the res.content_type = httpz.ContentType.JSON;
+    // Here we're passing an inferred anonymous structure, but you can pass anytype
+    // (so long as it can be serialized using std.json.stringify)
+
+    const key = zul.UUID.v4();
+
+    // dont need to call deinit because res.allocator is arena
+    const data = try std.json.parseFromSlice(core.primitives.PostMintQuoteBolt11Request, res.arena, req.body().?, .{});
+
+    std.log.debug("i am heere", .{});
+    // not need to deallocate due arena res
+    const inv = try mint.createInvoice(res.arena, &key.bin, data.value.amount);
+
+    std.log.debug("i am heere1", .{});
+
+    const quote = core.primitives.Bolt11MintQuote{
+        .quote_id = key,
+        .payment_request = inv.payment_request,
+        // plus 30 minutes
+        .expiry = @as(u64, @intCast(std.time.timestamp())) + 30 * 60,
+        .paid = false,
+    };
+
+    var tx = try mint.db.beginTx(res.arena);
+    try mint.db.addBolt11MintQuote(res.arena, tx, quote);
+    try tx.commit();
+
+    try res.json(&quote, .{});
 }
