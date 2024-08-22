@@ -79,6 +79,19 @@ pub const Bolt11MintQuote = struct {
     }
 };
 
+pub const PostMintBolt11Request = struct {
+    quote: []const u8,
+    outputs: helper.JsonArrayList(blind.BlindedMessage),
+
+    pub fn deinit(self: @This()) void {
+        self.outputs.value.deinit();
+    }
+};
+
+pub const PostMintBolt11Response = struct {
+    signatures: []const blind.BlindedSignature,
+};
+
 pub const PostMintQuoteBolt11Request = struct {
     amount: u64,
     unit: CurrencyUnit,

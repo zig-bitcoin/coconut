@@ -3,6 +3,22 @@ const std = @import("std");
 pub const Invoice = struct {
     amount: u64,
     payment_request: []const u8,
+
+    pub fn deinit(self: Invoice, allocator: std.mem.Allocator) void {
+        allocator.free(self.payment_request);
+    }
+
+    pub fn clone(self: *const Invoice, allocator: std.mem.Allocator) !Invoice {
+        var cp = self.*;
+        const pr = try allocator.alloc(u8, self.payment_request.len);
+        errdefer allocator.free(pr);
+
+        @memcpy(pr, self.payment_request);
+
+        cp.payment_request = pr;
+
+        return cp;
+    }
 };
 
 pub const CreateInvoiceResult = struct {

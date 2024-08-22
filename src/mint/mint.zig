@@ -65,7 +65,7 @@ pub const Mint = struct {
 
         return false;
     }
-
+    /// caller should deinit with allocator result
     pub fn createBlindedSignatures(
         self: *const Self,
         allocator: std.mem.Allocator,
@@ -142,5 +142,16 @@ pub const Mint = struct {
         try tx.commit();
 
         return inv;
+    }
+
+    pub fn mintBolt11Tokens(self: *const Self, allocator: std.mem.Allocator, tx: database.Tx, key: []const u8, outputs: []const core.BlindedMessage, keyset: core.keyset.MintKeyset) ![]const core.BlindedSignature {
+        const invoice = try self.db.getPendingInvoice(allocator, tx, key);
+        defer invoice.deinit(allocator);
+
+        // const is_paid = try self.lightning.isInvoicePaid(allocator, invoice.payment_request);
+
+        try self.db.deletePendingInvoice(allocator, tx, key);
+
+        return try self.createBlindedSignatures(allocator, outputs, keyset);
     }
 };

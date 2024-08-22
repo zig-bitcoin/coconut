@@ -65,8 +65,12 @@ pub const Database = struct {
     getUsedProofsFn: *const fn (ptr: *anyopaque, tx: Tx, allocator: std.mem.Allocator) anyerror![]core.proof.Proof,
 
     addPendingInvoiceFn: *const fn (ptr: *anyopaque, allocator: std.mem.Allocator, tx: Tx, key: []const u8, invoice: model.Invoice) anyerror!void,
+    getPendingInvoiceFn: *const fn (ptr: *anyopaque, allocator: std.mem.Allocator, tx: Tx, key: []const u8) anyerror!model.Invoice,
+    deletePendingInvoiceFn: *const fn (ptr: *anyopaque, allocator: std.mem.Allocator, tx: Tx, key: []const u8) anyerror!void,
 
     getBolt11MintQuoteFn: *const fn (ptr: *anyopaque, _: std.mem.Allocator, _: Tx, id: zul.UUID) anyerror!core.primitives.Bolt11MintQuote,
+
+    updateBolt11MintQuoteFn: *const fn (ptr: *anyopaque, _: std.mem.Allocator, _: Tx, quote: core.primitives.Bolt11MintQuote) anyerror!void,
 
     addBolt11MintQuoteFn: *const fn (ptr: *anyopaque, _: std.mem.Allocator, _: Tx, _: core.primitives.Bolt11MintQuote) anyerror!void,
 
@@ -102,6 +106,24 @@ pub const Database = struct {
                 return ptr_info.Pointer.child.addPendingInvoice(self, allocator, tx, key, invoice);
             }
 
+            pub fn getPendingInvoice(pointer: *anyopaque, allocator: std.mem.Allocator, tx: Tx, key: []const u8) anyerror!model.Invoice {
+                const self: T = @ptrCast(@alignCast(pointer));
+
+                return ptr_info.Pointer.child.getPendingInvoice(self, allocator, tx, key);
+            }
+
+            pub fn updateBolt11MintQuote(pointer: *anyopaque, allocator: std.mem.Allocator, tx: Tx, quote: core.primitives.Bolt11MintQuote) anyerror!void {
+                const self: T = @ptrCast(@alignCast(pointer));
+
+                return ptr_info.Pointer.child.updateBolt11MintQuote(self, allocator, tx, quote);
+            }
+
+            pub fn deletePendingInvoice(pointer: *anyopaque, allocator: std.mem.Allocator, tx: Tx, key: []const u8) anyerror!void {
+                const self: T = @ptrCast(@alignCast(pointer));
+
+                return ptr_info.Pointer.child.deletePendingInvoice(self, allocator, tx, key);
+            }
+
             pub fn getBolt11MintQuote(pointer: *anyopaque, allocator: std.mem.Allocator, tx: Tx, id: zul.UUID) !core.primitives.Bolt11MintQuote {
                 const self: T = @ptrCast(@alignCast(pointer));
 
@@ -124,6 +146,9 @@ pub const Database = struct {
             .addPendingInvoiceFn = gen.addPendingInvoice,
             .getBolt11MintQuoteFn = gen.getBolt11MintQuote,
             .addBolt11MintQuoteFn = gen.addBolt11MintQuote,
+            .getPendingInvoiceFn = gen.getPendingInvoice,
+            .deletePendingInvoiceFn = gen.deletePendingInvoice,
+            .updateBolt11MintQuoteFn = gen.updateBolt11MintQuote,
         };
     }
 
@@ -140,12 +165,24 @@ pub const Database = struct {
         return self.getUsedProofsFn(self.ptr, tx, allocator);
     }
 
-    pub fn addPendingInvoice(self: Database, allocator: std.mem.Allocator, tx: Tx, key: []const u8, invoice: model.Invoice) anyerror!void {
+    pub fn addPendingInvoice(self: Database, allocator: std.mem.Allocator, tx: Tx, key: []const u8, invoice: model.Invoice) !void {
         return self.addPendingInvoiceFn(self.ptr, allocator, tx, key, invoice);
+    }
+
+    pub fn getPendingInvoice(self: Database, allocator: std.mem.Allocator, tx: Tx, key: []const u8) !model.Invoice {
+        return self.getPendingInvoiceFn(self.ptr, allocator, tx, key);
+    }
+
+    pub fn deletePendingInvoice(self: Database, allocator: std.mem.Allocator, tx: Tx, key: []const u8) !void {
+        return self.deletePendingInvoiceFn(self.ptr, allocator, tx, key);
     }
 
     pub fn getBolt11MintQuote(self: Database, allocator: std.mem.Allocator, tx: Tx, id: zul.UUID) !core.primitives.Bolt11MintQuote {
         return self.getBolt11MintQuoteFn(self.ptr, allocator, tx, id);
+    }
+
+    pub fn updateBolt11MintQuote(self: Database, allocator: std.mem.Allocator, tx: Tx, quote: core.primitives.Bolt11MintQuote) !void {
+        return self.updateBolt11MintQuoteFn(self.ptr, allocator, tx, quote);
     }
 
     pub fn addBolt11MintQuote(self: Database, allocator: std.mem.Allocator, tx: Tx, quote: core.primitives.Bolt11MintQuote) !void {
@@ -210,6 +247,21 @@ pub const InMemory = struct {
             for (self.quotes.items) |q| q.deinit();
         }
 
+        fn update(self: *@This(), quote: core.primitives.Bolt11MintQuote) !void {
+            if (self.getPtr(quote.quote_id)) |q| {
+                const q_old = q.*;
+                const q_cloned = try quote.clone(self.allocator);
+
+                q.* = Bolt11MintQuote{
+                    .id = q_cloned.quote_id,
+                    .payment_request = q_cloned.payment_request,
+                    .expiry = q_cloned.expiry,
+                    .paid = q_cloned.paid,
+                };
+                q_old.deinit(self.allocator);
+            } else return error.QuoteNotFound;
+        }
+
         fn add(self: *@This(), quote: core.primitives.Bolt11MintQuote) !void {
             if (self.get(quote.quote_id) != null) return error.QuoteAlreadyExist;
 
@@ -226,6 +278,12 @@ pub const InMemory = struct {
 
         fn get(self: *@This(), id: zul.UUID) ?Bolt11MintQuote {
             for (self.quotes.items) |i| if (id.eql(i.id)) return i;
+
+            return null;
+        }
+
+        fn getPtr(self: *@This(), id: zul.UUID) ?*Bolt11MintQuote {
+            for (self.quotes.items) |*i| if (id.eql(i.id)) return i;
 
             return null;
         }
@@ -286,7 +344,7 @@ pub const InMemory = struct {
         fn delete(self: *@This(), key: []const u8) !void {
             for (0.., self.invoices.items) |idx, i| {
                 if (std.mem.eql(u8, i.key, key)) {
-                    self.invoices.orderedRemove(idx);
+                    _ = self.invoices.orderedRemove(idx);
                     return;
                 }
             }
@@ -344,6 +402,18 @@ pub const InMemory = struct {
         try self.pending_invoices.add(.{ .key = key, .amount = invoice.amount, .payment_request = invoice.payment_request });
     }
 
+    pub fn getPendingInvoice(self: *Self, allocator: std.mem.Allocator, _: Tx, key: []const u8) !model.Invoice {
+        const invoice = self.pending_invoices.get(key) orelse return error.PendingInvoiceNotFound;
+
+        const inv = model.Invoice{ .amount = invoice.amount, .payment_request = invoice.payment_request };
+
+        return inv.clone(allocator);
+    }
+
+    pub fn deletePendingInvoice(self: *Self, _: std.mem.Allocator, _: Tx, key: []const u8) anyerror!void {
+        return try self.pending_invoices.delete(key);
+    }
+
     pub fn getBolt11MintQuote(self: *Self, allocator: std.mem.Allocator, _: Tx, id: zul.UUID) !core.primitives.Bolt11MintQuote {
         const q = self.quotes.get(id) orelse return error.NotFound;
 
@@ -359,6 +429,10 @@ pub const InMemory = struct {
 
     pub fn addBolt11MintQuote(self: *Self, _: std.mem.Allocator, _: Tx, quote: core.primitives.Bolt11MintQuote) !void {
         return self.quotes.add(quote);
+    }
+
+    pub fn updateBolt11MintQuote(self: *Self, _: std.mem.Allocator, _: Tx, quote: core.primitives.Bolt11MintQuote) !void {
+        return self.quotes.update(quote);
     }
 };
 
