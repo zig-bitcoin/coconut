@@ -228,7 +228,7 @@ pub const ExtendedPrivKey = struct {
     pub fn derivePriv(
         self: ExtendedPrivKey,
         secp: secp256k1.Secp256k1,
-        path: []ChildNumber,
+        path: []const ChildNumber,
     ) !ExtendedPrivKey {
         var sk = self;
         for (path) |cnum| {

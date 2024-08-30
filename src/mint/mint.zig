@@ -154,4 +154,111 @@ pub const Mint = struct {
 
         return try self.createBlindedSignatures(allocator, outputs, keyset);
     }
+
+    pub fn feeReserve(self: *const Self, amount_msat: u64) !u64 {
+        const fee_percent = self.config.lightning_fee.fee_percent / 100.0;
+        const fee_reserve: u64 = @intFromFloat(@as(f64, @floatFromInt(amount_msat)) * fee_percent);
+
+        return @max(fee_reserve, self.config.lightning_fee.fee_reserve_min);
+    }
+
+    // melting using bolt11 method, returned payment hash and change, should be manually deallocated
+    pub fn meltBolt11(
+        self: *const Mint,
+        tx: database.Tx,
+        allocator: std.mem.Allocator,
+        payment_request: []const u8,
+        fee_reserve: u64,
+        proofs: []const core.proof.Proof,
+        blinded_messages: ?[]const core.BlindedMessage,
+        keyset: core.keyset.MintKeyset,
+    ) struct { bool, []const u8, std.ArrayList(core.BlindedSignature) } {
+        _ = keyset; // autofix
+        const invoice = try self.lightning.decodeInvoice(allocator, payment_request);
+
+        const proofs_amount = core.proof.Proof.totalAmount(proofs);
+
+        // TODO verify proofs
+
+        try self.checkedUsedProofs(tx, proofs);
+
+        // TODO check for fees
+        const amount_msat = invoice
+            .amountMilliSatoshis() orelse return error.@"Invoice amount is missing";
+
+        if (amount_msat < (proofs_amount / 1_000)) {
+            return error.@"Invoice amount is too low";
+        }
+
+        // TODO check invoice
+        const result = try self.lightning.payInvoice(allocator, payment_request);
+        errdefer result.deinit(allocator);
+
+        try self.db.addUsedProofs(tx, proofs);
+
+        var signatures = std.ArrayList(core.BlindedSignature).init(allocator);
+        errdefer signatures.deinit();
+
+        if (blinded_messages) |blinded_msgs| v: {
+            if (fee_reserve) {
+                const return_fees = try core.splitAmount(allocator, fee_reserve - result.total_fees);
+                defer return_fees.deinit();
+            }
+            // if (fee_reserve > 0) {
+            //     let return_fees = Amount(fee_reserve - result.total_fees).split();
+
+            //     if (return_fees.len()) > blinded_messages.len() {
+            //         // FIXME better handle case when there are more fees than blinded messages
+            //         vec![]
+            //     } else {
+            //         let out: Vec<_> = blinded_messages[0..return_fees.len()]
+            //             .iter()
+            //             .zip(return_fees.into_iter())
+            //             .map(|(message, fee)| BlindedMessage {
+            //                 amount: fee,
+            //                 ..message.clone()
+            //             })
+            //             .collect();
+
+            //         self.create_blinded_signatures(&out, keyset)?
+            //     }
+            // } else {
+            //     vec![]
+            // }
+        } else v: {}
+
+        // let change = match blinded_messages {
+        //     Some(blinded_messages) => {
+        //         if fee_reserve > 0 {
+        //             let return_fees = Amount(fee_reserve - result.total_fees).split();
+
+        //             if (return_fees.len()) > blinded_messages.len() {
+        //                 // FIXME better handle case when there are more fees than blinded messages
+        //                 vec![]
+        //             } else {
+        //                 let out: Vec<_> = blinded_messages[0..return_fees.len()]
+        //                     .iter()
+        //                     .zip(return_fees.into_iter())
+        //                     .map(|(message, fee)| BlindedMessage {
+        //                         amount: fee,
+        //                         ..message.clone()
+        //                     })
+        //                     .collect();
+
+        //                 self.create_blinded_signatures(&out, keyset)?
+        //             }
+        //         } else {
+        //             vec![]
+        //         }
+        //     }
+        //     None => {
+        //         vec![]
+        //     }
+        // };
+
+        // Ok((true, result.payment_hash, change))
+    }
+
+
+    pub fn proccessMintRequest(self: *const Mint, tx: database.Tx,)
 };

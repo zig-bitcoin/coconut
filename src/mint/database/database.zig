@@ -74,6 +74,12 @@ pub const Database = struct {
 
     addBolt11MintQuoteFn: *const fn (ptr: *anyopaque, _: std.mem.Allocator, _: Tx, _: core.primitives.Bolt11MintQuote) anyerror!void,
 
+    getBolt11MeltQuoteFn: *const fn (ptr: *anyopaque, _: std.mem.Allocator, _: Tx, id: zul.UUID) anyerror!core.primitives.Bolt11MeltQuote,
+
+    updateBolt11MeltQuoteFn: *const fn (ptr: *anyopaque, _: std.mem.Allocator, _: Tx, quote: core.primitives.Bolt11MeltQuote) anyerror!void,
+
+    addBolt11MeltQuoteFn: *const fn (ptr: *anyopaque, _: std.mem.Allocator, _: Tx, _: core.primitives.Bolt11MeltQuote) anyerror!void,
+
     // This is new
     fn init(ptr: anytype) Database {
         const T = @TypeOf(ptr);
@@ -112,16 +118,16 @@ pub const Database = struct {
                 return ptr_info.Pointer.child.getPendingInvoice(self, allocator, tx, key);
             }
 
-            pub fn updateBolt11MintQuote(pointer: *anyopaque, allocator: std.mem.Allocator, tx: Tx, quote: core.primitives.Bolt11MintQuote) anyerror!void {
-                const self: T = @ptrCast(@alignCast(pointer));
-
-                return ptr_info.Pointer.child.updateBolt11MintQuote(self, allocator, tx, quote);
-            }
-
             pub fn deletePendingInvoice(pointer: *anyopaque, allocator: std.mem.Allocator, tx: Tx, key: []const u8) anyerror!void {
                 const self: T = @ptrCast(@alignCast(pointer));
 
                 return ptr_info.Pointer.child.deletePendingInvoice(self, allocator, tx, key);
+            }
+
+            pub fn updateBolt11MintQuote(pointer: *anyopaque, allocator: std.mem.Allocator, tx: Tx, quote: core.primitives.Bolt11MintQuote) anyerror!void {
+                const self: T = @ptrCast(@alignCast(pointer));
+
+                return ptr_info.Pointer.child.updateBolt11MintQuote(self, allocator, tx, quote);
             }
 
             pub fn getBolt11MintQuote(pointer: *anyopaque, allocator: std.mem.Allocator, tx: Tx, id: zul.UUID) !core.primitives.Bolt11MintQuote {
@@ -135,6 +141,24 @@ pub const Database = struct {
 
                 return ptr_info.Pointer.child.addBolt11MintQuote(self, allocator, tx, quote);
             }
+
+            pub fn updateBolt11MeltQuote(pointer: *anyopaque, allocator: std.mem.Allocator, tx: Tx, quote: core.primitives.Bolt11MeltQuote) anyerror!void {
+                const self: T = @ptrCast(@alignCast(pointer));
+
+                return ptr_info.Pointer.child.updateBolt11MeltQuote(self, allocator, tx, quote);
+            }
+
+            pub fn getBolt11MeltQuote(pointer: *anyopaque, allocator: std.mem.Allocator, tx: Tx, id: zul.UUID) !core.primitives.Bolt11MeltQuote {
+                const self: T = @ptrCast(@alignCast(pointer));
+
+                return ptr_info.Pointer.child.getBolt11MeltQuote(self, allocator, tx, id);
+            }
+
+            pub fn addBolt11MeltQuote(pointer: *anyopaque, allocator: std.mem.Allocator, tx: Tx, quote: core.primitives.Bolt11MeltQuote) !void {
+                const self: T = @ptrCast(@alignCast(pointer));
+
+                return ptr_info.Pointer.child.addBolt11MeltQuote(self, allocator, tx, quote);
+            }
         };
 
         return .{
@@ -144,11 +168,15 @@ pub const Database = struct {
             .addUsedProofsFn = gen.addUsedProofs,
             .getUsedProofsFn = gen.getUsedProofs,
             .addPendingInvoiceFn = gen.addPendingInvoice,
-            .getBolt11MintQuoteFn = gen.getBolt11MintQuote,
-            .addBolt11MintQuoteFn = gen.addBolt11MintQuote,
             .getPendingInvoiceFn = gen.getPendingInvoice,
             .deletePendingInvoiceFn = gen.deletePendingInvoice,
             .updateBolt11MintQuoteFn = gen.updateBolt11MintQuote,
+            .getBolt11MintQuoteFn = gen.getBolt11MintQuote,
+            .addBolt11MintQuoteFn = gen.addBolt11MintQuote,
+
+            .updateBolt11MeltQuoteFn = gen.updateBolt11MeltQuote,
+            .getBolt11MeltQuoteFn = gen.getBolt11MeltQuote,
+            .addBolt11MeltQuoteFn = gen.addBolt11MeltQuote,
         };
     }
 
@@ -187,6 +215,18 @@ pub const Database = struct {
 
     pub fn addBolt11MintQuote(self: Database, allocator: std.mem.Allocator, tx: Tx, quote: core.primitives.Bolt11MintQuote) !void {
         return self.addBolt11MintQuoteFn(self.ptr, allocator, tx, quote);
+    }
+
+    pub fn getBolt11MeltQuote(self: Database, allocator: std.mem.Allocator, tx: Tx, id: zul.UUID) !core.primitives.Bolt11MeltQuote {
+        return self.getBolt11MeltQuoteFn(self.ptr, allocator, tx, id);
+    }
+
+    pub fn updateBolt11MeltQuote(self: Database, allocator: std.mem.Allocator, tx: Tx, quote: core.primitives.Bolt11MeltQuote) !void {
+        return self.updateBolt11MeltQuoteFn(self.ptr, allocator, tx, quote);
+    }
+
+    pub fn addBolt11MeltQuote(self: Database, allocator: std.mem.Allocator, tx: Tx, quote: core.primitives.Bolt11MeltQuote) !void {
+        return self.addBolt11MeltQuoteFn(self.ptr, allocator, tx, quote);
     }
 
     pub fn deinit(self: Database) void {
@@ -298,6 +338,60 @@ pub const InMemory = struct {
         }
     };
 
+    const Bolt11MeltQuotes = struct {
+        quotes: std.ArrayList(core.primitives.Bolt11MeltQuote),
+        allocator: std.mem.Allocator,
+
+        fn init(allocator: std.mem.Allocator) !Bolt11MeltQuotes {
+            return .{
+                .quotes = std.ArrayList(core.primitives.Bolt11MeltQuote).init(allocator),
+                .allocator = allocator,
+            };
+        }
+
+        fn deinit(self: @This()) void {
+            for (self.quotes.items) |q| q.deinit();
+        }
+
+        fn update(self: *@This(), quote: core.primitives.Bolt11MeltQuote) !void {
+            if (self.getPtr(quote.quote_id)) |q| {
+                const q_old = q.*;
+                q.* = try quote.clone(self.allocator);
+                q_old.deinit(self.allocator);
+            } else return error.QuoteNotFound;
+        }
+
+        fn add(self: *@This(), quote: core.primitives.Bolt11MeltQuote) !void {
+            if (self.get(quote.quote_id) != null) return error.QuoteAlreadyExist;
+
+            const new = try quote.clone(self.allocator);
+            errdefer new.deinit(self.allocator);
+
+            try self.quotes.append(new);
+        }
+
+        fn get(self: *@This(), id: zul.UUID) ?core.primitives.Bolt11MeltQuote {
+            for (self.quotes.items) |i| if (id.eql(i.quote_id)) return i;
+
+            return null;
+        }
+
+        fn getPtr(self: *@This(), id: zul.UUID) ?*core.primitives.Bolt11MeltQuote {
+            for (self.quotes.items) |*i| if (id.eql(i.quote_id)) return i;
+
+            return null;
+        }
+
+        fn delete(self: *@This(), id: zul.UUID) !void {
+            for (0.., self.quotes.items) |idx, i| {
+                if (i.quote_id.eql(id)) {
+                    self.quotes.orderedRemove(idx);
+                    return;
+                }
+            }
+        }
+    };
+
     const PendingInvoices = struct {
         const PendingInvoice = struct {
             key: []const u8,
@@ -354,7 +448,8 @@ pub const InMemory = struct {
     allocator: std.mem.Allocator,
     proofs: std.ArrayList(core.proof.Proof),
     pending_invoices: PendingInvoices,
-    quotes: Bolt11MintQuotes,
+    mint_quotes: Bolt11MintQuotes,
+    melt_quotes: Bolt11MeltQuotes,
 
     pub fn init(allocator: std.mem.Allocator) !Database {
         var self = try allocator.create(Self);
@@ -366,8 +461,11 @@ pub const InMemory = struct {
         self.pending_invoices = try PendingInvoices.init(allocator);
         errdefer self.pending_invoices.deinit();
 
-        self.quotes = try Bolt11MintQuotes.init(allocator);
-        errdefer self.quotes.deinit();
+        self.mint_quotes = try Bolt11MintQuotes.init(allocator);
+        errdefer self.mint_quotes.deinit();
+
+        self.melt_quotes = try Bolt11MeltQuotes.init(allocator);
+        errdefer self.melt_quotes.deinit();
 
         return Database.init(self);
     }
@@ -415,7 +513,7 @@ pub const InMemory = struct {
     }
 
     pub fn getBolt11MintQuote(self: *Self, allocator: std.mem.Allocator, _: Tx, id: zul.UUID) !core.primitives.Bolt11MintQuote {
-        const q = self.quotes.get(id) orelse return error.NotFound;
+        const q = self.mint_quotes.get(id) orelse return error.NotFound;
 
         const qq = core.primitives.Bolt11MintQuote{
             .quote_id = q.id,
@@ -428,11 +526,25 @@ pub const InMemory = struct {
     }
 
     pub fn addBolt11MintQuote(self: *Self, _: std.mem.Allocator, _: Tx, quote: core.primitives.Bolt11MintQuote) !void {
-        return self.quotes.add(quote);
+        return self.mint_quotes.add(quote);
     }
 
     pub fn updateBolt11MintQuote(self: *Self, _: std.mem.Allocator, _: Tx, quote: core.primitives.Bolt11MintQuote) !void {
-        return self.quotes.update(quote);
+        return self.mint_quotes.update(quote);
+    }
+
+    pub fn getBolt11MeltQuote(self: *Self, allocator: std.mem.Allocator, _: Tx, id: zul.UUID) !core.primitives.Bolt11MeltQuote {
+        const q = self.melt_quotes.get(id) orelse return error.NotFound;
+
+        return q.clone(allocator);
+    }
+
+    pub fn addBolt11MeltQuote(self: *Self, _: std.mem.Allocator, _: Tx, quote: core.primitives.Bolt11MeltQuote) !void {
+        return self.melt_quotes.add(quote);
+    }
+
+    pub fn updateBolt11MeltQuote(self: *Self, _: std.mem.Allocator, _: Tx, quote: core.primitives.Bolt11MeltQuote) !void {
+        return self.melt_quotes.update(quote);
     }
 };
 

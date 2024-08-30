@@ -29,8 +29,11 @@ pub fn runServer(
     router.get("/v1/keysets", routes.default.getKeysets);
     router.post("/v1/swap", routes.default.swap);
     router.post("/v1/mint/quote/bolt11", routes.default.mintQuoteBolt11);
+    router.post("/v1/melt/quote/bolt11", routes.default.meltQuoteBolt11);
     router.post("/v1/mint/bolt11", routes.default.mintBolt11);
     router.get("/v1/mint/quote/bolt11/:quote_id", routes.default.getMintQuoteBolt11);
+    router.get("/v1/melt/quote/bolt11/:quote_id", routes.default.getMeltQuoteBolt11);
+    router.post("/v1/melt/bolt11", routes.default.meltBolt11);
 
     return server.listen();
 }

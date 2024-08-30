@@ -112,3 +112,55 @@ pub const PostMintQuoteBolt11Response = struct {
         };
     }
 };
+
+pub const PostMeltQuoteBolt11Request = struct {
+    /// payment request
+    request: []const u8,
+    unit: CurrencyUnit,
+};
+
+pub const PostMeltQuoteBolt11Response = struct {
+    quote: []const u8,
+    amount: u64,
+    fee_reserve: u64,
+    paid: bool,
+    expiry: ?u64,
+};
+
+pub const Bolt11MeltQuote = struct {
+    quote_id: zul.UUID, // uuid
+    amount: u64,
+    fee_reserve: u64,
+    payment_request: []const u8,
+    expiry: u64,
+    paid: bool,
+
+    pub fn deinit(self: @This(), allocator: std.mem.Allocator) void {
+        allocator.free(self.payment_request);
+    }
+
+    pub fn clone(self: *const @This(), allocator: std.mem.Allocator) !@This() {
+        var res = self.*;
+
+        const payment_request = try allocator.alloc(u8, self.payment_request.len);
+        errdefer allocator.free(payment_request);
+
+        @memcpy(payment_request, self.payment_request);
+
+        res.payment_request = payment_request;
+
+        return res;
+    }
+};
+
+pub const PostMeltBolt11Request = struct {
+    quote: []const u8,
+    inputs: []const Proof,
+    outputs: ?[]const blind.BlindedMessage,
+};
+
+pub const PostMeltBolt11Response = struct {
+    paid: bool,
+    payment_preimage: ?[]const u8,
+    change: []const blind.BlindedSignature,
+};

@@ -24,3 +24,8 @@ Cargo.lock
 **/zig-out
 
 **/benchmark_report.csv
+
+
+.vscode
+
+**/.DS_Store
