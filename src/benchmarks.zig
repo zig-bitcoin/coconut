@@ -1,6 +1,6 @@
 const std = @import("std");
-const bdhke = @import("core/bdhke.zig");
 
+const dhke = @import("core/dhke.zig");
 const secp256k1 = @import("core/secp256k1.zig");
 const Scalar = secp256k1.Scalar;
 const PublicKey = secp256k1.PublicKey;
@@ -16,74 +16,102 @@ pub fn main() !void {
     const args = try std.process.argsAlloc(allocator);
     defer std.process.argsFree(allocator, args);
 
-    try benchmarkZul(allocator);
+    try benchmarkZul();
 }
 
 const Context = struct {
     secret_msg: []const u8 = "test_message",
-    dhke: bdhke.Dhke,
+    secp: secp256k1.Secp256k1,
     bf: SecretKey,
     a: SecretKey,
 };
 
 fn hashToCurve(ctx: Context, _: std.mem.Allocator, _: *std.time.Timer) !void {
-    _ = try bdhke.Dhke.hashToCurve(ctx.secret_msg);
+    _ = try dhke.hashToCurve(ctx.secret_msg);
 }
 
 fn step1Alice(ctx: Context, _: std.mem.Allocator, _: *std.time.Timer) !void {
-    _ = try ctx.dhke.step1Alice(ctx.secret_msg, ctx.bf);
+    const y = try dhke.hashToCurve(ctx.secret_msg);
+
+    _ = try y.combine(secp256k1.PublicKey.fromSecretKey(ctx.secp, ctx.bf));
 }
 
 fn step2Bob(ctx: Context, _: std.mem.Allocator, t: *std.time.Timer) !void {
-    const B_ = try ctx.dhke.step1Alice(ctx.secret_msg, ctx.bf);
+    const y = try dhke.hashToCurve(ctx.secret_msg);
+
+    const B_ = try y.combine(secp256k1.PublicKey.fromSecretKey(ctx.secp, ctx.bf));
 
     t.reset();
 
-    _ = try ctx.dhke.step2Bob(B_, ctx.a);
+    _ = try B_.mulTweak(&ctx.secp, secp256k1.Scalar.fromSecretKey(ctx.a));
 }
 
 fn step3Alice(ctx: Context, _: std.mem.Allocator, t: *std.time.Timer) !void {
-    const B_ = try ctx.dhke.step1Alice(ctx.secret_msg, ctx.bf);
-    const C_ = try ctx.dhke.step2Bob(B_, ctx.a);
-    const pub_key = ctx.a.publicKey(ctx.dhke.secp);
+    const y = try dhke.hashToCurve(ctx.secret_msg);
+
+    const B_ = try y.combine(secp256k1.PublicKey.fromSecretKey(ctx.secp, ctx.bf));
+
+    const C_ = try B_.mulTweak(&ctx.secp, secp256k1.Scalar.fromSecretKey(ctx.a));
+
+    const pub_key = ctx.a.publicKey(ctx.secp);
 
     t.reset();
 
-    _ = try ctx.dhke.step3Alice(C_, ctx.bf, pub_key);
+    _ = C_.combine(
+        (try pub_key
+            .mulTweak(&ctx.secp, secp256k1.Scalar.fromSecretKey(ctx.bf)))
+            .negate(&ctx.secp),
+    ) catch return error.Secp256k1Error;
 }
 
 fn verify(ctx: Context, _: std.mem.Allocator, t: *std.time.Timer) !void {
-    const B_ = try ctx.dhke.step1Alice(ctx.secret_msg, ctx.bf);
-    const C_ = try ctx.dhke.step2Bob(B_, ctx.a);
-    const pub_key = ctx.a.publicKey(ctx.dhke.secp);
+    const y = try dhke.hashToCurve(ctx.secret_msg);
 
-    const C = try ctx.dhke.step3Alice(C_, ctx.bf, pub_key);
+    const B_ = try y.combine(secp256k1.PublicKey.fromSecretKey(ctx.secp, ctx.bf));
+
+    const C_ = try B_.mulTweak(&ctx.secp, secp256k1.Scalar.fromSecretKey(ctx.a));
+
+    const pub_key = ctx.a.publicKey(ctx.secp);
+
+    const C = C_.combine(
+        (try pub_key
+            .mulTweak(&ctx.secp, secp256k1.Scalar.fromSecretKey(ctx.bf)))
+            .negate(&ctx.secp),
+    ) catch return error.Secp256k1Error;
     t.reset();
 
-    _ = try ctx.dhke.verify(ctx.a, C, ctx.secret_msg);
+    _ = try dhke.verifyMessage(ctx.secp, ctx.a, C, ctx.secret_msg);
 }
 
 fn end2End(ctx: Context, _: std.mem.Allocator, _: *std.time.Timer) !void {
-    const b_ = try ctx.dhke
-        .step1Alice(ctx.secret_msg, ctx.bf);
+    const y = try dhke.hashToCurve(ctx.secret_msg);
 
-    const c_ = try ctx.dhke.step2Bob(b_, ctx.a);
+    const B_ = try y.combine(secp256k1.PublicKey.fromSecretKey(ctx.secp, ctx.bf));
 
-    const c = try ctx.dhke
-        .step3Alice(c_, ctx.bf, ctx.a.publicKey(ctx.dhke.secp));
+    const C_ = try B_.mulTweak(&ctx.secp, secp256k1.Scalar.fromSecretKey(ctx.a));
 
-    _ = try ctx.dhke.verify(ctx.a, c, ctx.secret_msg);
+    const pub_key = ctx.a.publicKey(ctx.secp);
+
+    const C = C_.combine(
+        (try pub_key
+            .mulTweak(&ctx.secp, secp256k1.Scalar.fromSecretKey(ctx.bf)))
+            .negate(&ctx.secp),
+    ) catch return error.Secp256k1Error;
+
+    _ = try dhke.verifyMessage(ctx.secp, ctx.a, C, ctx.secret_msg);
 }
 
-fn benchmarkZul(allocator: std.mem.Allocator) !void {
+fn benchmarkZul() !void {
     const a_bytes: [32]u8 = [_]u8{1} ** 32;
     const r_bytes: [32]u8 = [_]u8{1} ** 32;
+    const secp = try secp256k1.Secp256k1.genNew();
+    defer secp.deinit();
+
     const ctx = Context{
-        .dhke = try bdhke.Dhke.init(allocator),
+        .secp = secp,
         .a = try SecretKey.fromSlice(&a_bytes),
         .bf = try SecretKey.fromSlice(&r_bytes),
     };
-    defer ctx.dhke.deinit();
 
     (try zul.benchmark.runC(ctx, hashToCurve, .{})).print("hashToCurve");
     (try zul.benchmark.runC(ctx, step1Alice, .{})).print("step1Alice");

@@ -10,38 +10,37 @@ const DOMAIN_SEPARATOR = "Secp256k1_HashToCurve_Cashu_";
 ///
 /// For definationn in NUT see [NUT-00](https://github.com/cashubtc/nuts/blob/main/00.md)
 pub fn hashToCurve(message: []const u8) !secp256k1.PublicKey {
+    const domain_separator = "Secp256k1_HashToCurve_Cashu_";
     var hasher = std.crypto.hash.sha2.Sha256.init(.{});
 
-    hasher.update(DOMAIN_SEPARATOR);
+    hasher.update(domain_separator);
     hasher.update(message);
 
-    const msg_hash = hasher.finalResult();
+    const msg_to_hash = hasher.finalResult();
+
+    var buf: [33]u8 = undefined;
+    buf[0] = 0x02;
+
+    var counter_buf: [4]u8 = undefined;
+
+    const till = comptime try std.math.powi(u32, 2, 16);
 
     var counter: u32 = 0;
 
-    while (counter < try std.math.powi(u32, 2, 16)) {
-        var bytes_to_hash: [36]u8 = undefined;
-
-        bytes_to_hash[0..32].* = msg_hash;
-
-        std.mem.writeInt(u32, bytes_to_hash[32..36], counter, .little);
-
-        // reset hasher
+    while (counter < till) : (counter += 1) {
         hasher = std.crypto.hash.sha2.Sha256.init(.{});
-        hasher.update(&bytes_to_hash);
 
-        const hash = hasher.finalResult();
+        hasher.update(&msg_to_hash);
+        std.mem.writeInt(u32, &counter_buf, counter, .little);
+        hasher.update(&counter_buf);
+        hasher.final(buf[1..]);
 
-        // Try to parse public key
-        const pk = secp256k1.XOnlyPublicKey.fromSlice(&hash) catch {
-            counter += 1;
-            continue;
-        };
+        const pk = secp256k1.PublicKey.fromSlice(&buf) catch continue;
 
-        return pk.publicKey(.even);
+        return pk;
     }
 
-    return error.NoValidPoint;
+    return error.NoValidPointFound;
 }
 
 /// Convert iterator of [`PublicKey`] to byte array
