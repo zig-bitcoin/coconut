@@ -15,6 +15,7 @@ const std = @import("std");
 const amount_lib = @import("../../amount.zig");
 const dhke = @import("../../dhke.zig");
 const helper = @import("../../../helper/helper.zig");
+const bip39 = @import("../../bip39/bip39.zig");
 
 fn derivePathFromKeysetId(id: Id) ![3]bip32.ChildNumber {
     const index: u32 = @intCast(try id.toU64() % ((std.math.powi(u64, 2, 31) catch unreachable) - 1));
@@ -207,13 +208,13 @@ pub fn preMintSecretsRestoreBatch(
 }
 
 test "test_secret_from_seed" {
-    //        let seed =
-    // "half depart obvious quality work element tank gorilla view sugar picture humble";
-    // let mnemonic = Mnemonic::from_str(seed).unwrap();
-    // let seed: [u8; 64] = mnemonic.to_seed("");
-    // TODO mnemonic bip39 and change on it
+    const seed_words =
+        "half depart obvious quality work element tank gorilla view sugar picture humble";
 
-    const seed = [_]u8{ 221, 68, 238, 81, 107, 6, 71, 232, 11, 72, 142, 141, 204, 86, 215, 54, 161, 72, 241, 82, 118, 190, 245, 136, 179, 112, 87, 71, 109, 75, 43, 37, 120, 13, 54, 136, 163, 43, 55, 53, 61, 105, 149, 153, 120, 66, 192, 253, 139, 65, 36, 117, 200, 145, 193, 99, 16, 71, 31, 188, 134, 220, 189, 168 };
+    const mnemonic = try bip39.Mnemonic.parseInNormalized(.english, seed_words);
+
+    const seed = try mnemonic.toSeedNormalized("");
+
     const xpriv = try bip32.ExtendedPrivKey.initMaster(.MAINNET, &seed);
 
     const keyset_id = try Id.fromStr("009a1f293253e41e");
@@ -238,13 +239,13 @@ test "test_secret_from_seed" {
 }
 
 test "test_r_from_seed" {
-    //        let seed =
-    // "half depart obvious quality work element tank gorilla view sugar picture humble";
-    // let mnemonic = Mnemonic::from_str(seed).unwrap();
-    // let seed: [u8; 64] = mnemonic.to_seed("");
-    // TODO mnemonic bip39 and change on it
+    const seed_words =
+        "half depart obvious quality work element tank gorilla view sugar picture humble";
 
-    const seed = [_]u8{ 221, 68, 238, 81, 107, 6, 71, 232, 11, 72, 142, 141, 204, 86, 215, 54, 161, 72, 241, 82, 118, 190, 245, 136, 179, 112, 87, 71, 109, 75, 43, 37, 120, 13, 54, 136, 163, 43, 55, 53, 61, 105, 149, 153, 120, 66, 192, 253, 139, 65, 36, 117, 200, 145, 193, 99, 16, 71, 31, 188, 134, 220, 189, 168 };
+    const mnemonic = try bip39.Mnemonic.parseInNormalized(.english, seed_words);
+
+    const seed = try mnemonic.toSeedNormalized("");
+
     const xpriv = try bip32.ExtendedPrivKey.initMaster(.MAINNET, &seed);
 
     const keyset_id = try Id.fromStr("009a1f293253e41e");
