@@ -1,5 +1,5 @@
 const std = @import("std");
-const secp256k1 = @import("../../secp256k1.zig");
+const secp256k1 = @import("secp256k1");
 const KeySet = @import("../nut02/nut02.zig").KeySet;
 
 /// Mint Public Keys [NUT-01]

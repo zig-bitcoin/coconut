@@ -137,7 +137,7 @@ pub fn fieldType(comptime T: type, comptime name: []const u8) ?type {
 
 // TODO add check for hash map
 pub fn RenameJsonField(comptime T: type, comptime field_from_to: std.StaticStringMap([]const u8)) type {
-    const field = comptime @typeInfo(T).Struct;
+    const field = comptime @typeInfo(T).@"struct";
     const full_map = comptime blk: {
         var result: [field.fields.len]struct { []const u8, []const u8 } = undefined;
 
@@ -221,9 +221,9 @@ pub fn RenameJsonField(comptime T: type, comptime field_from_to: std.StaticStrin
             try out.beginObject();
 
             switch (@typeInfo(@TypeOf(self))) {
-                .Pointer => |p| {
+                .pointer => |p| {
                     switch (@typeInfo(p.child)) {
-                        .Struct => |S| {
+                        .@"struct" => |S| {
                             inline for (S.fields) |Field| {
                                 // don't include void fields
                                 if (Field.type == void) continue;
@@ -231,7 +231,7 @@ pub fn RenameJsonField(comptime T: type, comptime field_from_to: std.StaticStrin
                                 var emit_field = true;
 
                                 // don't include optional fields that are null when emit_null_optional_fields is set to false
-                                if (@typeInfo(Field.type) == .Optional) {
+                                if (@typeInfo(Field.type) == .optional) {
                                     if (out.options.emit_null_optional_fields == false) {
                                         if (@field(self, Field.name) == null) {
                                             emit_field = false;

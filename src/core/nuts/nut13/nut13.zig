@@ -2,7 +2,7 @@
 //!
 //! <https://github.com/cashubtc/nuts/blob/main/13.md>
 
-const secp256k1 = @import("../../secp256k1.zig");
+const secp256k1 = @import("secp256k1");
 const SecretKey = secp256k1.SecretKey;
 const Secret = @import("../../secret.zig").Secret;
 const Id = @import("../nut02/nut02.zig").Id;

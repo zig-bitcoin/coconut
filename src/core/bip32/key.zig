@@ -1,4 +1,4 @@
-const secp256k1 = @import("../secp256k1.zig");
+const secp256k1 = @import("secp256k1");
 const Network = @import("bip32.zig").Network;
 
 /// A Bitcoin ECDSA private key

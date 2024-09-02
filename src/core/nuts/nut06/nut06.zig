@@ -2,7 +2,7 @@
 //!
 //! <https://github.com/cashubtc/nuts/blob/main/06.md>
 const std = @import("std");
-const PublicKey = @import("../../secp256k1.zig").PublicKey;
+const PublicKey = @import("secp256k1").PublicKey;
 const MppMethodSettings = @import("../nut15/nut15.zig").MppMethodSettings;
 const nut05 = @import("../nut05/nut05.zig");
 const nut15 = @import("../nut15/nut15.zig");

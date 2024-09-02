@@ -3,7 +3,7 @@
 //! <https://github.com/cashubtc/nuts/blob/main/07.md>
 const std = @import("std");
 const helper = @import("../../../helper/helper.zig");
-const secp256k1 = @import("../../secp256k1.zig");
+const secp256k1 = @import("secp256k1");
 
 /// State of Proof
 pub const State = enum {

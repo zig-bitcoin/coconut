@@ -2,7 +2,7 @@
 //!
 //! <https://github.com/cashubtc/nuts/blob/main/12.md>
 const std = @import("std");
-const secp256k1 = @import("../../secp256k1.zig");
+const secp256k1 = @import("secp256k1");
 const dhke = @import("../../dhke.zig");
 const Proof = @import("../nut00/lib.zig").Proof;
 const BlindSignature = @import("../nut00/lib.zig").BlindSignature;
