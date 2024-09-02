@@ -1,6 +1,6 @@
 //! Diffie-Hellmann key exchange
 const std = @import("std");
-const secp256k1 = @import("secp256k1.zig");
+const secp256k1 = @import("secp256k1");
 const secret_lib = @import("secret.zig");
 const nuts = @import("nuts/lib.zig");
 

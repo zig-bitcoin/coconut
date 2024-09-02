@@ -11,33 +11,6 @@ const external_dependencies = [_]build_helpers.Dependency{
     },
 };
 
-fn buildSecp256k1(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) !*std.Build.Step.Compile {
-    const lib = b.addStaticLibrary(.{ .name = "libsecp", .target = target, .optimize = optimize });
-
-    lib.addIncludePath(b.path("libsecp256k1/"));
-    lib.addIncludePath(b.path("libsecp256k1/src"));
-
-    var flags = std.ArrayList([]const u8).init(b.allocator);
-    defer flags.deinit();
-
-    try flags.appendSlice(&.{"-DENABLE_MODULE_RECOVERY=1"});
-    try flags.appendSlice(&.{"-DENABLE_MODULE_SCHNORRSIG=1"});
-    try flags.appendSlice(&.{"-DENABLE_MODULE_ECDH=1"});
-    try flags.appendSlice(&.{"-DENABLE_MODULE_EXTRAKEYS=1"});
-    lib.addCSourceFiles(.{ .root = b.path("libsecp256k1/"), .flags = flags.items, .files = &.{ "./src/secp256k1.c", "./src/precomputed_ecmult.c", "./src/precomputed_ecmult_gen.c" } });
-    lib.defineCMacro("USE_FIELD_10X26", "1");
-    lib.defineCMacro("USE_SCALAR_8X32", "1");
-    lib.defineCMacro("USE_ENDOMORPHISM", "1");
-    lib.defineCMacro("USE_NUM_NONE", "1");
-    lib.defineCMacro("USE_FIELD_INV_BUILTIN", "1");
-    lib.defineCMacro("USE_SCALAR_INV_BUILTIN", "1");
-    lib.installHeadersDirectory(b.path("libsecp256k1/src"), "", .{ .include_extensions = &.{".h"} });
-    lib.installHeadersDirectory(b.path("libsecp256k1/include/"), "", .{ .include_extensions = &.{".h"} });
-    lib.linkLibC();
-
-    return lib;
-}
-
 pub fn build(b: *std.Build) !void {
     // Standard target options allows the person running `zig build` to choose
     // what target to build for. Here we do not override the defaults, which
@@ -74,10 +47,6 @@ pub fn build(b: *std.Build) !void {
         .imports = deps,
     });
 
-    // libsecp256k1 static C library.
-    const libsecp256k1 = try buildSecp256k1(b, target, optimize);
-    b.installArtifact(libsecp256k1);
-
     // httpz dependency
     const httpz_module = b.dependency("httpz", .{ .target = target, .optimize = optimize }).module("httpz");
 
@@ -91,6 +60,11 @@ pub fn build(b: *std.Build) !void {
         .target = target,
         .optimize = optimize,
     }).module("zul");
+
+    const secp256k1 = b.dependency("secp256k1", .{
+        .target = target,
+        .optimize = optimize,
+    });
 
     const base58_module = b.dependency("base58-zig", .{
         .target = target,
@@ -127,7 +101,6 @@ pub fn build(b: *std.Build) !void {
             .target = target,
             .optimize = optimize,
         });
-        exe.linkLibrary(libsecp256k1);
         exe.root_module.addImport("httpz", httpz_module);
         exe.root_module.addImport("pg", pg.module("pg"));
         exe.root_module.addImport("zul", zul);
@@ -154,9 +127,10 @@ pub fn build(b: *std.Build) !void {
             .target = target,
             .optimize = optimize,
         });
-        exe.linkLibrary(libsecp256k1);
         exe.root_module.addImport("httpz", httpz_module);
         exe.root_module.addImport("zul", zul);
+        exe.root_module.addImport("secp256k1", secp256k1.module("secp256k1"));
+        exe.root_module.linkLibrary(secp256k1.artifact("libsecp"));
         exe.root_module.addImport("pg", pg.module("pg"));
 
         // Add dependency modules to the executable.
@@ -188,7 +162,6 @@ pub fn build(b: *std.Build) !void {
             .target = target,
             .optimize = optimize,
         });
-        exe.linkLibrary(libsecp256k1);
         // Add dependency modules to the executable.
         for (deps) |mod| exe.root_module.addImport(
             mod.name,
@@ -213,24 +186,16 @@ pub fn build(b: *std.Build) !void {
         .target = target,
         .optimize = optimize,
     });
-    lib_unit_tests.linkLibrary(libsecp256k1);
     lib_unit_tests.root_module.addImport("zul", zul);
+    lib_unit_tests.root_module.addImport("secp256k1", secp256k1.module("secp256k1"));
+    lib_unit_tests.root_module.linkLibrary(secp256k1.artifact("libsecp"));
     lib_unit_tests.root_module.addImport("httpz", httpz_module);
     lib_unit_tests.root_module.addImport("base58", base58_module);
 
     const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);
 
-    const exe_unit_tests = b.addTest(.{
-        .root_source_file = b.path("src/main.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-
-    const run_exe_unit_tests = b.addRunArtifact(exe_unit_tests);
-
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_lib_unit_tests.step);
-    test_step.dependOn(&run_exe_unit_tests.step);
 
     // Add benchmark step
     const bench = b.addExecutable(.{
@@ -240,8 +205,15 @@ pub fn build(b: *std.Build) !void {
         .optimize = .ReleaseFast,
     });
 
-    bench.linkLibrary(libsecp256k1);
+    // Add dependency modules to the executable.
+    for (deps) |mod| bench.root_module.addImport(
+        mod.name,
+        mod.module,
+    );
+
     bench.root_module.addImport("zul", zul);
+    bench.root_module.addImport("secp256k1", secp256k1.module("secp256k1"));
+    bench.root_module.linkLibrary(secp256k1.artifact("libsecp"));
 
     const run_bench = b.addRunArtifact(bench);
 

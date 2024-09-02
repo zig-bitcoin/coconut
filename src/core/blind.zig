@@ -1,5 +1,5 @@
 const std = @import("std");
-const secp256k1 = @import("secp256k1.zig");
+const secp256k1 = @import("secp256k1");
 const bdhke = @import("bdhke.zig");
 
 pub fn fieldType(comptime T: type, comptime name: []const u8) ?type {

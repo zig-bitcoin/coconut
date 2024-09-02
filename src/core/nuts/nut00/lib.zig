@@ -1,6 +1,6 @@
 const helper = @import("../../../helper/helper.zig");
 const secret = @import("../../secret.zig");
-const secp256k1 = @import("../../secp256k1.zig");
+const secp256k1 = @import("secp256k1");
 const P2PKWitness = @import("../nut11/nut11.zig").P2PKWitness;
 const HTLCWitness = @import("../nut14/nut14.zig").HTLCWitness;
 const std = @import("std");

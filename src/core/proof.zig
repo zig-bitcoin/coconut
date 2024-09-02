@@ -1,5 +1,5 @@
 const std = @import("std");
-const PublicKey = @import("secp256k1.zig").PublicKey;
+const PublicKey = @import("secp256k1").PublicKey;
 const fieldType = @import("blind.zig").fieldType;
 
 pub const Proof = struct {

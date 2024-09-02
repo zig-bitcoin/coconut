@@ -3,6 +3,7 @@ const errors = @import("error.zig");
 const core = @import("../../../core/lib.zig");
 const constants = @import("constants.zig");
 const bech32 = @import("../../../bech32/bech32.zig");
+const secp256k1 = @import("secp256k1");
 
 /// Construct the invoice's HRP and signatureless data into a preimage to be hashed.
 pub fn constructInvoicePreimage(allocator: std.mem.Allocator, hrp_bytes: []const u8, data_without_signature: []const u5) !std.ArrayList(u8) {
@@ -150,7 +151,7 @@ pub const RawBolt11Invoice = struct {
 };
 
 pub const Bolt11InvoiceSignature = struct {
-    value: core.secp256k1.RecoverableSignature,
+    value: secp256k1.RecoverableSignature,
 
     pub fn fromBase32(allocator: std.mem.Allocator, sig: []const u5) !Bolt11InvoiceSignature {
         if (sig.len != 104) return errors.Bolt11ParseError.InvalidSliceLength;
@@ -159,9 +160,9 @@ pub const Bolt11InvoiceSignature = struct {
         defer recoverable_signature_bytes.deinit();
 
         const signature = recoverable_signature_bytes.items[0..64];
-        const recovery_id = try core.secp256k1.RecoveryId.fromI32(recoverable_signature_bytes.items[64]);
+        const recovery_id = try secp256k1.RecoveryId.fromI32(recoverable_signature_bytes.items[64]);
 
-        return .{ .value = try core.secp256k1.RecoverableSignature.fromCompact(signature, recovery_id) };
+        return .{ .value = try secp256k1.RecoverableSignature.fromCompact(signature, recovery_id) };
     }
 };
 
@@ -646,9 +647,9 @@ test "decode" {
     try std.testing.expectEqual(.{ 0xc3, 0xd4, 0xe8, 0x3f, 0x64, 0x6f, 0xa7, 0x9a, 0x39, 0x3d, 0x75, 0x27, 0x7b, 0x1d, 0x85, 0x8d, 0xb1, 0xd1, 0xf7, 0xab, 0x71, 0x37, 0xdc, 0xb7, 0x83, 0x5d, 0xb2, 0xec, 0xd5, 0x18, 0xe1, 0xc9 }, v.hash);
 
     try std.testing.expectEqual(Bolt11InvoiceSignature{
-        .value = try core.secp256k1.RecoverableSignature.fromCompact(
+        .value = try secp256k1.RecoverableSignature.fromCompact(
             &.{ 0x38, 0xec, 0x68, 0x91, 0x34, 0x5e, 0x20, 0x41, 0x45, 0xbe, 0x8a, 0x3a, 0x99, 0xde, 0x38, 0xe9, 0x8a, 0x39, 0xd6, 0xa5, 0x69, 0x43, 0x4e, 0x18, 0x45, 0xc8, 0xaf, 0x72, 0x05, 0xaf, 0xcf, 0xcc, 0x7f, 0x42, 0x5f, 0xcd, 0x14, 0x63, 0xe9, 0x3c, 0x32, 0x88, 0x1e, 0xad, 0x0d, 0x6e, 0x35, 0x6d, 0x46, 0x7e, 0xc8, 0xc0, 0x25, 0x53, 0xf9, 0xaa, 0xb1, 0x5e, 0x57, 0x38, 0xb1, 0x1f, 0x12, 0x7f },
-            try core.secp256k1.RecoveryId.fromI32(0),
+            try secp256k1.RecoveryId.fromI32(0),
         ),
     }, v.signature);
 }

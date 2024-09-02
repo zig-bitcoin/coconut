@@ -4,7 +4,7 @@
 //! at <https://github.com/bitcoin/bips/blob/master/bip-0032.mediawiki>.
 //!
 const Ripemd160 = @import("../../mint/lightning/invoices/ripemd160.zig").Ripemd160;
-const secp256k1 = @import("../secp256k1.zig");
+const secp256k1 = @import("secp256k1");
 const Secp256k1NumberOfPoints = 115792089237316195423570985008687907852837564279074904382605163141518161494337;
 const key_lib = @import("key.zig");
 

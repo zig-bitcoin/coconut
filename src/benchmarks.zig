@@ -1,7 +1,7 @@
 const std = @import("std");
 
 const dhke = @import("core/dhke.zig");
-const secp256k1 = @import("core/secp256k1.zig");
+const secp256k1 = @import("secp256k1");
 const Scalar = secp256k1.Scalar;
 const PublicKey = secp256k1.PublicKey;
 const SecretKey = secp256k1.SecretKey;
