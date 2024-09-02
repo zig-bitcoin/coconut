@@ -28,8 +28,8 @@
             .hash = "12206f5d1e5bd4793fe952bbae891b7424a19026e0d296a1381074c7d21d5d76c1a1",
         },
         .@"zig-cli" = .{
-            .url = "https://github.com/sam701/zig-cli/archive/9a94c4803a52e54c26b198096d63fb5bde752da2.zip",
-            .hash = "1220ab73fb7cc11b2308edc3364988e05efcddbcac31b707f55e6216d1b9c0da13f1",
+            .url = "https://github.com/StringNick/zig-cli/archive/c9b9d17b14c524785a32a5b7c930b9584a331372.zip",
+            .hash = "12204099afd10139d640e1c5b5338c7434bf5d7bb8336728007f575b8b3a05821e96",
         },
         .httpz = .{
             .url = "git+https://github.com/karlseguin/http.zig#7080d974aeee6438038ae7744509367317fdf5a0",
