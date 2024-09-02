@@ -1,5 +1,105 @@
 const std = @import("std");
 
+pub fn Parsed(comptime T: type) type {
+    return struct {
+        arena: *std.heap.ArenaAllocator,
+        value: T,
+
+        pub fn init(allocator: std.mem.Allocator) !@This() {
+            var parsed = Parsed(T){
+                .arena = try allocator.create(std.heap.ArenaAllocator),
+                .value = undefined,
+            };
+            errdefer allocator.destroy(parsed.arena);
+
+            parsed.arena.* = std.heap.ArenaAllocator.init(allocator);
+            errdefer parsed.arena.deinit();
+
+            return parsed;
+        }
+
+        pub fn deinit(self: @This()) void {
+            const allocator = self.arena.child_allocator;
+            self.arena.deinit();
+            allocator.destroy(self.arena);
+        }
+    };
+}
+
+pub fn clone2dArrayToSlice(comptime T: type, allocator: std.mem.Allocator, array: std.ArrayList(std.ArrayList(T))) ![]const []const T {
+    var result = try allocator.alloc([]const T, array.items.len);
+    errdefer {
+        for (result) |r| allocator.free(r);
+        allocator.free(result);
+    }
+
+    for (0.., array.items) |idx, arr| {
+        const slice = try allocator.alloc(T, arr.items.len);
+
+        @memcpy(slice, arr.items);
+        result[idx] = slice;
+    }
+
+    return result;
+}
+
+pub fn clone3dArrayToSlice(
+    comptime T: type,
+    allocator: std.mem.Allocator,
+    arr: std.ArrayList(std.ArrayList(std.ArrayList(T))),
+) ![]const []const []const T {
+    var result = try allocator.alloc([]const []const T, arr.items.len);
+    errdefer {
+        for (result) |rr| {
+            for (rr) |rrr| allocator.free(rrr);
+            allocator.free(rr);
+        }
+
+        allocator.free(result);
+    }
+
+    for (0.., arr.items) |idx, ar| {
+        result[idx] = try clone2dArrayToSlice(T, allocator, ar);
+    }
+
+    return result;
+}
+
+pub fn clone3dSliceToArrayList(comptime T: type, allocator: std.mem.Allocator, slice: []const []const []const T) !std.ArrayList(std.ArrayList(std.ArrayList(T))) {
+    var result = try std.ArrayList(std.ArrayList(std.ArrayList(T))).initCapacity(allocator, slice.len);
+    errdefer {
+        for (result.items) |r| {
+            for (r.items) |rr| rr.deinit();
+            r.deinit();
+        }
+
+        result.deinit();
+    }
+
+    for (slice) |item| {
+        result.appendAssumeCapacity(try clone2dSliceToArrayList(T, allocator, item));
+    }
+
+    return result;
+}
+
+pub fn clone2dSliceToArrayList(comptime T: type, allocator: std.mem.Allocator, slice: []const []const T) !std.ArrayList(std.ArrayList(T)) {
+    var result = try std.ArrayList(std.ArrayList(T)).initCapacity(allocator, slice.len);
+    errdefer {
+        for (result.items) |r| r.deinit();
+    }
+
+    for (slice) |item| {
+        var sl = try std.ArrayList(T).initCapacity(allocator, item.len);
+
+        sl.appendSliceAssumeCapacity(item);
+
+        result.appendAssumeCapacity(sl);
+    }
+
+    return result;
+}
+
 pub fn JsonArrayList(comptime T: type) type {
     return struct {
         const Self = @This();
@@ -7,7 +107,6 @@ pub fn JsonArrayList(comptime T: type) type {
         value: std.ArrayList(T),
 
         pub fn jsonParse(allocator: std.mem.Allocator, source: anytype, options: std.json.ParseOptions) !Self {
-            errdefer std.log.err("ssssaaaa", .{});
             if (try source.next() != .array_begin) return error.UnexpectedToken;
 
             var result = std.ArrayList(T).init(allocator);
@@ -68,6 +167,8 @@ pub fn RenameJsonField(comptime T: type, comptime field_from_to: std.StaticStrin
 
             var res: T = undefined;
 
+            var fields_seen = [_]bool{false} ** full_map.len;
+
             while (true) {
                 // taking token name from source
                 const name_token: ?std.json.Token = try source.nextAllocMax(allocator, .alloc_if_needed, options.max_value_len.?);
@@ -83,10 +184,11 @@ pub fn RenameJsonField(comptime T: type, comptime field_from_to: std.StaticStrin
 
                 var f = false;
 
-                inline for (full_map) |p| {
+                inline for (0.., full_map) |i, p| {
                     if (std.mem.eql(u8, p[1], field_name)) {
                         @field(&res, p[0]) = try std.json.innerParse(fieldType(T, p[0]).?, allocator, source, options);
                         f = true;
+                        fields_seen[i] = true;
                         break;
                     }
                 }
@@ -94,6 +196,21 @@ pub fn RenameJsonField(comptime T: type, comptime field_from_to: std.StaticStrin
                 if (!f) {
                     std.log.err("field not found {s}", .{field_name});
                     return error.MissingField;
+                }
+            }
+
+            for (0.., fields_seen) |i, seen| {
+                if (!seen) {
+                    inline for (field.fields) |f| {
+                        if (std.mem.eql(u8, f.name, full_map[i][0])) {
+                            if (f.default_value) |default_ptr| {
+                                const default = @as(*align(1) const f.type, @ptrCast(default_ptr)).*;
+                                @field(&res, f.name) = default;
+                            } else {
+                                return error.MissingField;
+                            }
+                        }
+                    }
                 }
             }
 
@@ -106,12 +223,30 @@ pub fn RenameJsonField(comptime T: type, comptime field_from_to: std.StaticStrin
             switch (@typeInfo(@TypeOf(self))) {
                 .Pointer => |p| {
                     switch (@typeInfo(p.child)) {
-                        .Struct => |s| {
-                            inline for (s.fields) |f| {
-                                const rename_to = comptime ffto.get(f.name).?;
-                                try out.objectField(rename_to);
-                                try out.write(@field(self, f.name));
+                        .Struct => |S| {
+                            inline for (S.fields) |Field| {
+                                // don't include void fields
+                                if (Field.type == void) continue;
+
+                                var emit_field = true;
+
+                                // don't include optional fields that are null when emit_null_optional_fields is set to false
+                                if (@typeInfo(Field.type) == .Optional) {
+                                    if (out.options.emit_null_optional_fields == false) {
+                                        if (@field(self, Field.name) == null) {
+                                            emit_field = false;
+                                        }
+                                    }
+                                }
+
+                                if (emit_field) {
+                                    try out.objectField(ffto.get(Field.name) orelse return error.OutOfMemory);
+                                }
+                                try out.write(@field(self, Field.name));
                             }
+
+                            try out.endObject();
+                            return;
                         },
                         else => {
                             @compileError("expect type Struct, got: " ++ @typeName(p.child));

@@ -12,7 +12,7 @@ const external_dependencies = [_]build_helpers.Dependency{
 };
 
 fn buildSecp256k1(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) !*std.Build.Step.Compile {
-    const lib = b.addStaticLibrary(.{ .name = "zig-libsecp256k1", .target = target, .optimize = optimize });
+    const lib = b.addStaticLibrary(.{ .name = "libsecp", .target = target, .optimize = optimize });
 
     lib.addIncludePath(b.path("libsecp256k1/"));
     lib.addIncludePath(b.path("libsecp256k1/src"));
@@ -21,6 +21,9 @@ fn buildSecp256k1(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std
     defer flags.deinit();
 
     try flags.appendSlice(&.{"-DENABLE_MODULE_RECOVERY=1"});
+    try flags.appendSlice(&.{"-DENABLE_MODULE_SCHNORRSIG=1"});
+    try flags.appendSlice(&.{"-DENABLE_MODULE_ECDH=1"});
+    try flags.appendSlice(&.{"-DENABLE_MODULE_EXTRAKEYS=1"});
     lib.addCSourceFiles(.{ .root = b.path("libsecp256k1/"), .flags = flags.items, .files = &.{ "./src/secp256k1.c", "./src/precomputed_ecmult.c", "./src/precomputed_ecmult_gen.c" } });
     lib.defineCMacro("USE_FIELD_10X26", "1");
     lib.defineCMacro("USE_SCALAR_8X32", "1");
@@ -84,6 +87,16 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize,
     });
 
+    const zul = b.dependency("zul", .{
+        .target = target,
+        .optimize = optimize,
+    }).module("zul");
+
+    const base58_module = b.dependency("base58-zig", .{
+        .target = target,
+        .optimize = optimize,
+    }).module("base58-zig");
+
     // **************************************************************
     // *              COCONUT AS A LIBRARY                        *
     // **************************************************************
@@ -104,6 +117,34 @@ pub fn build(b: *std.Build) !void {
     b.installArtifact(lib);
 
     // **************************************************************
+    // *              CHECK STEP AS AN EXECUTABLE                   *
+    // **************************************************************
+    // for lsp build on save step
+    {
+        const exe = b.addExecutable(.{
+            .name = "coconut-mint",
+            .root_source_file = b.path("src/mint.zig"),
+            .target = target,
+            .optimize = optimize,
+        });
+        exe.linkLibrary(libsecp256k1);
+        exe.root_module.addImport("httpz", httpz_module);
+        exe.root_module.addImport("pg", pg.module("pg"));
+        exe.root_module.addImport("zul", zul);
+
+        // Add dependency modules to the executable.
+        for (deps) |mod| exe.root_module.addImport(
+            mod.name,
+            mod.module,
+        );
+
+        // These two lines you might want to copy
+        // (make sure to rename 'exe_check')
+        const check = b.step("check", "Check if foo compiles");
+        check.dependOn(&exe.step);
+    }
+
+    // **************************************************************
     // *              COCONUT-MINT AS AN EXECUTABLE                    *
     // **************************************************************
     {
@@ -115,6 +156,7 @@ pub fn build(b: *std.Build) !void {
         });
         exe.linkLibrary(libsecp256k1);
         exe.root_module.addImport("httpz", httpz_module);
+        exe.root_module.addImport("zul", zul);
         exe.root_module.addImport("pg", pg.module("pg"));
 
         // Add dependency modules to the executable.
@@ -172,6 +214,9 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize,
     });
     lib_unit_tests.linkLibrary(libsecp256k1);
+    lib_unit_tests.root_module.addImport("zul", zul);
+    lib_unit_tests.root_module.addImport("httpz", httpz_module);
+    lib_unit_tests.root_module.addImport("base58", base58_module);
 
     const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);
 
@@ -196,7 +241,7 @@ pub fn build(b: *std.Build) !void {
     });
 
     bench.linkLibrary(libsecp256k1);
-    bench.root_module.addImport("zul", b.dependency("zul", .{}).module("zul"));
+    bench.root_module.addImport("zul", zul);
 
     const run_bench = b.addRunArtifact(bench);
 

@@ -13,6 +13,11 @@
 
 Coconut 🥥 is a Cashu Wallet and Mint implementation in Zig.
 
+## Test
+```sh
+zig build test --summary all
+```
+
 ## Build
 
 ```sh

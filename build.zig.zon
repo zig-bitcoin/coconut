@@ -39,6 +39,10 @@
             .url = "https://github.com/karlseguin/pg.zig/archive/1491270ac43c7eba91992bb06b3758254c36e39a.zip",
             .hash = "1220bcc68967188de7ad5d520a4629c0d1e169c111d87e6978a3c128de5ec2b6bdd0",
         },
+        .@"base58-zig" = .{
+            .url = "https://github.com/ultd/base58-zig/archive/e1001fbe8b41eed36d81e37931ada66b784e51dc.zip",
+            .hash = "12206e5050a03cd9dcb896781de0cf541081488006532675371653f61d00c1f27433",
+        },
     },
     .paths = .{
         "build.zig",

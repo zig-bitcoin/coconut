@@ -1,6 +1,5 @@
 const std = @import("std");
 const cli = @import("zig-cli");
-const bdhke = @import("core/bdhke.zig");
 
 // Configuration settings for the CLI
 const Args = struct {
@@ -65,9 +64,6 @@ fn execute() !void {
 }
 
 fn runInfo(allocator: std.mem.Allocator, _cfg: Args) !void {
-    const dhke = try bdhke.Dhke.init(allocator);
-    defer dhke.deinit();
-
     const stdout = std.io.getStdOut().writer();
 
     try stdout.print("Version: 0.1.0\n", .{});

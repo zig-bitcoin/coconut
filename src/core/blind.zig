@@ -38,7 +38,7 @@ pub const BlindedSignature = struct {
 pub const BlindedMessage = struct {
     amount: u64,
     b_: secp256k1.PublicKey,
-    id: []const u8,
+    id: [16]u8,
 
     pub usingnamespace @import("../helper/helper.zig").RenameJsonField(
         @This(),
@@ -68,7 +68,7 @@ test "blind serialize" {
     const sig = BlindedSignature{
         .amount = 10,
         .c_ = pub_key,
-        .id = "dfdfdf",
+        .id = undefined,
     };
 
     const json = try std.json.stringifyAlloc(std.testing.allocator, &sig, .{});
@@ -77,13 +77,11 @@ test "blind serialize" {
     const parsedSig = try std.json.parseFromSlice(BlindedSignature, std.testing.allocator, json, .{});
     defer parsedSig.deinit();
 
-    try std.testing.expectEqual(sig.amount, parsedSig.value.amount);
-    try std.testing.expectEqualSlices(u8, sig.id, parsedSig.value.id);
-    try std.testing.expectEqualSlices(u8, &sig.c_.pk.data, &parsedSig.value.c_.pk.data);
+    try std.testing.expectEqual(sig, parsedSig.value);
 
     const msg = BlindedMessage{
         .amount = 11,
-        .id = "dfdfdf",
+        .id = undefined,
         .b_ = pub_key,
     };
 
@@ -93,7 +91,5 @@ test "blind serialize" {
     const parsedMsg = try std.json.parseFromSlice(BlindedMessage, std.testing.allocator, json_msg, .{});
     defer parsedMsg.deinit();
 
-    try std.testing.expectEqual(msg.amount, parsedMsg.value.amount);
-    try std.testing.expectEqualSlices(u8, msg.id, parsedMsg.value.id);
-    try std.testing.expectEqualSlices(u8, &msg.b_.pk.data, &parsedMsg.value.b_.pk.data);
+    try std.testing.expectEqual(msg, parsedMsg.value);
 }
