@@ -66,6 +66,11 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize,
     });
 
+    const bitcoin_zig = b.dependency("bitcoin-zig", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
     const base58_module = b.dependency("base58-zig", .{
         .target = target,
         .optimize = optimize,
@@ -190,6 +195,7 @@ pub fn build(b: *std.Build) !void {
     lib_unit_tests.root_module.addImport("secp256k1", secp256k1.module("secp256k1"));
     lib_unit_tests.root_module.linkLibrary(secp256k1.artifact("libsecp"));
     lib_unit_tests.root_module.addImport("httpz", httpz_module);
+    lib_unit_tests.root_module.addImport("bitcoin", bitcoin_zig.module("bitcoin"));
     lib_unit_tests.root_module.addImport("base58", base58_module);
 
     const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);
@@ -214,6 +220,7 @@ pub fn build(b: *std.Build) !void {
     bench.root_module.addImport("zul", zul);
     bench.root_module.addImport("secp256k1", secp256k1.module("secp256k1"));
     bench.root_module.linkLibrary(secp256k1.artifact("libsecp"));
+    bench.root_module.addImport("bitcoin", bitcoin_zig.module("bitcoin"));
 
     const run_bench = b.addRunArtifact(bench);
 
