@@ -47,6 +47,10 @@
             .url = "https://github.com/zig-bitcoin/libsecp256k1-zig/archive/5f70bc5aa2a5ebc69c78a9a75fb83c2d7035bde1.zip",
             .hash = "12208e2a2f181feabb9fa01db64232e9cdefdf1b8f2919f1dd7f24c2393cad2b947b",
         },
+        .@"bitcoin-zig" = .{
+            .url = "git+https://github.com/zig-bitcoin/bitcoin-zig#f3af13008b088796697fc656e26d8c2ddf73dc18",
+            .hash = "1220d90650e0907125bc6035e3e10e10c088e9eb4de958b343a3cce5d7209ee5bbd4",
+        },
     },
     .paths = .{
         "build.zig",

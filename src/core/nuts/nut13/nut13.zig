@@ -10,12 +10,12 @@ const nut00 = @import("../nut00/lib.zig");
 const BlindedMessage = nut00.BlindedMessage;
 const PreMint = nut00.PreMint;
 const PreMintSecrets = nut00.PreMintSecrets;
-const bip32 = @import("../../bip32/bip32.zig");
+const bip32 = @import("bitcoin").bitcoin.bip32;
 const std = @import("std");
 const amount_lib = @import("../../amount.zig");
 const dhke = @import("../../dhke.zig");
 const helper = @import("../../../helper/helper.zig");
-const bip39 = @import("../../bip39/bip39.zig");
+const bip39 = @import("bitcoin").bitcoin.bip39;
 
 fn derivePathFromKeysetId(id: Id) ![3]bip32.ChildNumber {
     const index: u32 = @intCast(try id.toU64() % ((std.math.powi(u64, 2, 31) catch unreachable) - 1));

@@ -8,7 +8,7 @@ const Keys = @import("../nut01/nut01.zig").Keys;
 const MintKeys = @import("../nut01/nut01.zig").MintKeys;
 const MintKeyPair = @import("../nut01/nut01.zig").MintKeyPair;
 const secp256k1 = @import("secp256k1");
-const bip32 = @import("../../bip32/bip32.zig");
+const bip32 = @import("bitcoin").bitcoin.bip32;
 
 /// Keyset version
 pub const KeySetVersion = enum {
