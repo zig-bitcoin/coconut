@@ -1,9 +1,8 @@
 const std = @import("std");
-const errors = @import("error.zig");
-const core = @import("../../../lib.zig");
 const constants = @import("constants.zig");
 const bech32 = @import("bitcoin").bech32;
 const secp256k1 = @import("secp256k1");
+const errors = @import("error.zig");
 
 /// Construct the invoice's HRP and signatureless data into a preimage to be hashed.
 pub fn constructInvoicePreimage(allocator: std.mem.Allocator, hrp_bytes: []const u8, data_without_signature: []const u5) !std.ArrayList(u8) {

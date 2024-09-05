@@ -7,7 +7,7 @@ const CurrencyUnit = @import("../nut00/nut00.zig").CurrencyUnit;
 const Proof = @import("../nut00/nut00.zig").Proof;
 const PaymentMethod = @import("../nut00/nut00.zig").PaymentMethod;
 const Mpp = @import("../nut15/nut15.zig").Mpp;
-const Bolt11Invoice = @import("../../mint/lightning/invoices/lib.zig").Bolt11Invoice;
+const Bolt11Invoice = @import("../../../lightning_invoices/invoice.zig").Bolt11Invoice;
 const std = @import("std");
 
 /// Melt quote request [NUT-05]

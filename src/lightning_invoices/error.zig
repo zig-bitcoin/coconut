@@ -1,5 +1,3 @@
-const std = @import("std");
-
 pub const Bolt11ParseError = error{
     // Bech32Error(bech32::Error),
     ParseAmountError,
