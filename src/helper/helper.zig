@@ -1,5 +1,12 @@
 const std = @import("std");
 
+pub inline fn copySlice(allocator: std.mem.Allocator, slice: []const u8) ![]u8 {
+    const allocated = try allocator.alloc(u8, slice.len);
+
+    @memcpy(allocated, slice);
+    return allocated;
+}
+
 pub fn Parsed(comptime T: type) type {
     return struct {
         arena: *std.heap.ArenaAllocator,

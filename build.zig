@@ -23,6 +23,13 @@ pub fn build(b: *std.Build) !void {
     // set a preferred release mode, allowing the user to decide how to optimize.
     const optimize = b.standardOptimizeOption(.{});
 
+    // Channel module
+    const channel_m = b.addModule("channels", .{
+        .target = target,
+        .optimize = optimize,
+        .root_source_file = b.path("src/channels/channels.zig"),
+    });
+
     // **************************************************************
     // *            HANDLE DEPENDENCY MODULES                       *
     // **************************************************************
@@ -198,6 +205,8 @@ pub fn build(b: *std.Build) !void {
     lib_unit_tests.root_module.addImport("httpz", httpz_module);
     lib_unit_tests.root_module.addImport("bitcoin", bitcoin_zig.module("bitcoin"));
     lib_unit_tests.root_module.addImport("base58", base58_module);
+
+    lib_unit_tests.root_module.addImport("channels", channel_m);
 
     const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);
 
