@@ -2,8 +2,8 @@
 //!
 //! <https://github.com/cashubtc/nuts/blob/main/09.md>
 const std = @import("std");
-const BlindedMessage = @import("../nut00/lib.zig").BlindedMessage;
-const BlindSignature = @import("../nut00/lib.zig").BlindSignature;
+const BlindedMessage = @import("../nut00/nut00.zig").BlindedMessage;
+const BlindSignature = @import("../nut00/nut00.zig").BlindSignature;
 const helper = @import("../../../helper/helper.zig");
 
 /// Restore Request [NUT-09]

@@ -2,22 +2,22 @@
 //!
 //! <https://github.com/cashubtc/nuts/blob/main/03.md>
 
-const BlindSignature = @import("../nut00/lib.zig").BlindSignature;
-const BlindedMessage = @import("../nut00/lib.zig").BlindedMessage;
-// const PreMintSecrets = @import("../nut00/lib.zig").PreMintSecrets;
-const Proof = @import("../nut00/lib.zig").Proof;
+const BlindSignature = @import("../nut00/nut00.zig").BlindSignature;
+const BlindedMessage = @import("../nut00/nut00.zig").BlindedMessage;
+const PreMintSecrets = @import("../nut00/nut00.zig").PreMintSecrets;
+const Proof = @import("../nut00/nut00.zig").Proof;
 
-// /// Preswap information
-// pub const PreSwap = struct {
-//     /// Preswap mint secrets
-//     pre_mint_secrets: PreMintSecrets,
-//     /// Swap request
-//     swap_request: SwapRequest,
-//     /// Amount to increment keyset counter by
-//     derived_secret_count: u32,
-//     /// Fee amount
-//     fee: u64,
-// };
+/// Preswap information
+pub const PreSwap = struct {
+    /// Preswap mint secrets
+    pre_mint_secrets: PreMintSecrets,
+    /// Swap request
+    swap_request: SwapRequest,
+    /// Amount to increment keyset counter by
+    derived_secret_count: u32,
+    /// Fee amount
+    fee: u64,
+};
 
 /// Split Request [NUT-06]
 pub const SwapRequest = struct {

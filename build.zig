@@ -190,6 +190,7 @@ pub fn build(b: *std.Build) !void {
         .root_source_file = b.path("src/lib.zig"),
         .target = target,
         .optimize = optimize,
+        .single_threaded = false,
     });
     lib_unit_tests.root_module.addImport("zul", zul);
     lib_unit_tests.root_module.addImport("secp256k1", secp256k1.module("secp256k1"));

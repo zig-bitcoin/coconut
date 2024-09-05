@@ -1,13 +1,13 @@
 //! NUT-05: Melting Tokens
 //!
 //! <https://github.com/cashubtc/nuts/blob/main/05.md>
-const BlindSignature = @import("../nut00/lib.zig").BlindSignature;
-const BlindedMessage = @import("../nut00/lib.zig").BlindedMessage;
-const CurrencyUnit = @import("../nut00/lib.zig").CurrencyUnit;
-const Proof = @import("../nut00/lib.zig").Proof;
-const PaymentMethod = @import("../nut00/lib.zig").PaymentMethod;
+const BlindSignature = @import("../nut00/nut00.zig").BlindSignature;
+const BlindedMessage = @import("../nut00/nut00.zig").BlindedMessage;
+const CurrencyUnit = @import("../nut00/nut00.zig").CurrencyUnit;
+const Proof = @import("../nut00/nut00.zig").Proof;
+const PaymentMethod = @import("../nut00/nut00.zig").PaymentMethod;
 const Mpp = @import("../nut15/nut15.zig").Mpp;
-const Bolt11Invoice = @import("../../../mint/lightning/invoices/lib.zig").Bolt11Invoice;
+const Bolt11Invoice = @import("../../mint/lightning/invoices/lib.zig").Bolt11Invoice;
 const std = @import("std");
 
 /// Melt quote request [NUT-05]

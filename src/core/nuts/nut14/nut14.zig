@@ -2,8 +2,8 @@
 //!
 //! <https://github.com/cashubtc/nuts/blob/main/14.md>
 const std = @import("std");
-const Witness = @import("../nut00/lib.zig").Witness;
-const Proof = @import("../nut00/lib.zig").Proof;
+const Witness = @import("../nut00/nut00.zig").Witness;
+const Proof = @import("../nut00/nut00.zig").Proof;
 const Secret = @import("../nut10/nut10.zig").Secret;
 const Conditions = @import("../nut11/nut11.zig").Conditions;
 const secp256k1 = @import("secp256k1");

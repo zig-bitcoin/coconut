@@ -3,7 +3,7 @@
 //! <https://github.com/cashubtc/nuts/blob/main/02.md>
 
 const std = @import("std");
-const CurrencyUnit = @import("../nut00/lib.zig").CurrencyUnit;
+const CurrencyUnit = @import("../nut00/nut00.zig").CurrencyUnit;
 const Keys = @import("../nut01/nut01.zig").Keys;
 const MintKeys = @import("../nut01/nut01.zig").MintKeys;
 const MintKeyPair = @import("../nut01/nut01.zig").MintKeyPair;

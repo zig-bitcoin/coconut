@@ -1,6 +1,6 @@
 const std = @import("std");
 const errors = @import("error.zig");
-const core = @import("../../../core/lib.zig");
+const core = @import("../../../lib.zig");
 const constants = @import("constants.zig");
 const bech32 = @import("bitcoin").bech32;
 const secp256k1 = @import("secp256k1");

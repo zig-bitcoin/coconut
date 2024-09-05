@@ -2,9 +2,9 @@
 //!
 //! <https://github.com/cashubtc/nuts/blob/main/04.md>
 const std = @import("std");
-const CurrencyUnit = @import("../nut00/lib.zig").CurrencyUnit;
-const Proof = @import("../nut00/lib.zig").Proof;
-const PaymentMethod = @import("../nut00/lib.zig").PaymentMethod;
+const CurrencyUnit = @import("../nut00/nut00.zig").CurrencyUnit;
+const Proof = @import("../nut00/nut00.zig").Proof;
+const PaymentMethod = @import("../nut00/nut00.zig").PaymentMethod;
 
 pub const QuoteState = enum {
     /// Quote has not been paid

@@ -3,10 +3,10 @@
 //! <https://github.com/cashubtc/nuts/blob/main/11.md>
 const std = @import("std");
 
-const BlindedMessage = @import("../nut00/lib.zig").BlindedMessage;
-const Proof = @import("../nut00/lib.zig").Proof;
+const BlindedMessage = @import("../nut00/nut00.zig").BlindedMessage;
+const Proof = @import("../nut00/nut00.zig").Proof;
 const secp256k1 = @import("secp256k1");
-const Witness = @import("../nut00/lib.zig").Witness;
+const Witness = @import("../nut00/nut00.zig").Witness;
 const Nut10Secret = @import("../nut10/nut10.zig").Secret;
 const Id = @import("../nut02/nut02.zig").Id;
 const helper = @import("../../../helper/helper.zig");

@@ -4,8 +4,8 @@
 const std = @import("std");
 const secp256k1 = @import("secp256k1");
 const dhke = @import("../../dhke.zig");
-const Proof = @import("../nut00/lib.zig").Proof;
-const BlindSignature = @import("../nut00/lib.zig").BlindSignature;
+const Proof = @import("../nut00/nut00.zig").Proof;
+const BlindSignature = @import("../nut00/nut00.zig").BlindSignature;
 const Id = @import("../nut02/nut02.zig").Id;
 
 /// Blinded Signature on Dleq
