@@ -1,9 +1,9 @@
-const nuts = @import("../core/lib.zig").nuts;
+const nuts = @import("../lib.zig").nuts;
 const std = @import("std");
-const amount_lib = @import("../core/lib.zig").amount;
-const CurrencyUnit = @import("../core/lib.zig").nuts.CurrencyUnit;
-const MintQuoteState = @import("../core/lib.zig").nuts.nut04.QuoteState;
-const MeltQuoteState = @import("../core/lib.zig").nuts.nut05.QuoteState;
+const amount_lib = @import("../lib.zig").amount;
+const CurrencyUnit = @import("../lib.zig").nuts.CurrencyUnit;
+const MintQuoteState = @import("../lib.zig").nuts.nut04.QuoteState;
+const MeltQuoteState = @import("../lib.zig").nuts.nut05.QuoteState;
 const zul = @import("zul");
 
 /// Mint Quote Info
@@ -46,6 +46,25 @@ pub const MintQuote = struct {
             .expiry = expiry,
             .request_lookup_id = request_lookup_id,
         };
+    }
+
+    pub fn deinit(self: *const MintQuote, allocator: std.mem.Allocator) void {
+        allocator.free(self.request_lookup_id);
+        allocator.free(self.request);
+    }
+
+    pub fn clone(self: *const MintQuote, allocator: std.mem.Allocator) !MintQuote {
+        const request_lookup = try allocator.alloc(u8, self.request_lookup_id.len);
+        errdefer allocator.free(request_lookup);
+
+        const request = try allocator.alloc(u8, self.request.len);
+        errdefer allocator.free(request);
+
+        var cloned = self.*;
+        cloned.request = request;
+        cloned.request_lookup_id = request_lookup;
+
+        return cloned;
     }
 };
 
@@ -92,5 +111,39 @@ pub const MeltQuote = struct {
             .payment_preimage = null,
             .request_lookup_id = request_lookup_id,
         };
+    }
+
+    pub fn deinit(self: *const MeltQuote, allocator: std.mem.Allocator) void {
+        allocator.free(self.request);
+        allocator.free(self.request_lookup_id);
+        if (self.payment_preimage) |preimage| allocator.free(preimage);
+    }
+
+    pub fn clone(self: *const MeltQuote, allocator: std.mem.Allocator) !MeltQuote {
+        var cloned = self.*;
+
+        const request_lookup_id = try allocator.alloc(u8, self.request_lookup_id.len);
+        errdefer allocator.free(cloned.request_lookup_id);
+
+        @memcpy(request_lookup_id, self.request_lookup_id);
+
+        const request = try allocator.alloc(u8, self.request.len);
+        errdefer allocator.free(request);
+
+        @memcpy(request, self.request);
+
+        cloned.request_lookup_id = request_lookup_id;
+        cloned.request = request;
+
+        if (cloned.payment_preimage) |preimage| {
+            const preimage_cloned = try allocator.alloc(u8, self.request.len);
+            errdefer allocator.free(preimage_cloned);
+
+            @memcpy(preimage_cloned, preimage);
+
+            cloned.payment_preimage = preimage_cloned;
+        }
+
+        return cloned;
     }
 };

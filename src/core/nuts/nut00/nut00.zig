@@ -45,6 +45,27 @@ pub const Proof = struct {
         if (self.witness) |w| w.deinit();
         self.secret.deinit(allocator);
     }
+
+    pub fn clone(self: *const Proof, allocator: std.mem.Allocator) !Proof {
+        var cloned = self.*;
+
+        if (self.witness) |w| {
+            cloned.witness = try w.clone(allocator);
+        }
+        errdefer if (cloned.witness) |w| w.deinit();
+
+        cloned.secret = try self.secret.clone(allocator);
+        errdefer self.secret.deinit(allocator);
+
+        return cloned;
+    }
+
+    /// Get y from proof
+    ///
+    /// Where y is `hash_to_curve(secret)`
+    pub fn y(self: *const Proof) !secp256k1.PublicKey {
+        return try dhke.hashToCurve(self.secret.toBytes());
+    }
 };
 
 /// Witness
@@ -54,6 +75,13 @@ pub const Witness = union(enum) {
 
     /// HTLC Witness
     htlc_witness: HTLCWitness, // TODO
+
+    pub fn clone(self: *const Witness, allocator: std.mem.Allocator) !Witness {
+        _ = self; // autofix
+        _ = allocator; // autofix
+        // TODO impl clone
+        return undefined;
+    }
 
     pub fn jsonParse(allocator: std.mem.Allocator, _source: anytype, options: std.json.ParseOptions) !@This() {
         const parsed = try std.json.innerParse(std.json.Value, allocator, _source, options);

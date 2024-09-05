@@ -2,8 +2,8 @@
 //!
 //! <https://github.com/cashubtc/nuts/blob/main/15.md>
 
-const CurrencyUnit = @import("../nut00/lib.zig").CurrencyUnit;
-const PaymentMethod = @import("../nut00/lib.zig").PaymentMethod;
+const CurrencyUnit = @import("../nut00/nut00.zig").CurrencyUnit;
+const PaymentMethod = @import("../nut00/nut00.zig").PaymentMethod;
 
 const std = @import("std");
 
