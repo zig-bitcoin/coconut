@@ -70,7 +70,7 @@ pub fn toUnit(
     switch (current_unit) {
         .sat => switch (target_unit) {
             .sat => return amount,
-            .msat => amount * MSAT_IN_SAT,
+            .msat => return amount * MSAT_IN_SAT,
             else => {},
         },
         .msat => switch (target_unit) {
@@ -86,7 +86,6 @@ pub fn toUnit(
             .eur => return amount,
             else => {},
         },
-        else => {},
     }
 
     return error.CannotConvertUnits;
