@@ -1,5 +1,9 @@
 //! Mint Lightning
-
+const root = @import("../../lib.zig");
+const Bolt11Invoice = root.lightning_invoices.Bolt11Invoice;
+const Amount = root.core.amount.Amount;
+const MeltQuoteState = root.core.nuts.nut05.QuoteState;
+const CurrencyUnit = root.core.nuts.CurrencyUnit;
 
 /// Create invoice response
 pub const CreateInvoiceResponse = struct {
@@ -8,87 +12,84 @@ pub const CreateInvoiceResponse = struct {
     /// Bolt11 payment request
     request: Bolt11Invoice,
     /// Unix Expiry of Invoice
-    expiry: Option<u64>,
+    expiry: ?u64,
 };
 
 /// Pay invoice response
-#[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
-pub struct PayInvoiceResponse {
+pub const PayInvoiceResponse = struct {
     /// Payment hash
-    pub payment_hash: String,
+    payment_hash: []const u8,
     /// Payment Preimage
-    pub payment_preimage: Option<String>,
+    payment_preimage: ?[]const u8,
     /// Status
-    pub status: MeltQuoteState,
+    status: MeltQuoteState,
     /// Totoal Amount Spent
-    pub total_spent: Amount,
-}
+    total_spent: Amount,
+};
 
 /// Payment quote response
-#[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
-pub struct PaymentQuoteResponse {
+pub const PaymentQuoteResponse = struct {
     /// Request look up id
-    pub request_lookup_id: String,
+    request_lookup_id: []const u8,
     /// Amount
-    pub amount: Amount,
+    amount: Amount,
     /// Fee required for melt
-    pub fee: u64,
-}
+    fee: u64,
+};
 
 /// Ln backend settings
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Settings {
+pub const Settings = struct {
     /// MPP supported
-    pub mpp: bool,
+    mpp: bool,
     /// Min amount to mint
-    pub mint_settings: MintMeltSettings,
+    mint_settings: MintMeltSettings,
     /// Max amount to mint
-    pub melt_settings: MintMeltSettings,
+    melt_settings: MintMeltSettings,
     /// Base unit of backend
-    pub unit: CurrencyUnit,
-}
+    unit: CurrencyUnit,
+};
 
 /// Mint or melt settings
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Serialize, Deserialize)]
-pub struct MintMeltSettings {
+pub const MintMeltSettings = struct {
     /// Min Amount
-    pub min_amount: Amount,
+    min_amount: Amount = 1,
     /// Max Amount
-    pub max_amount: Amount,
+    max_amount: Amount = 500000,
     /// Enabled
-    pub enabled: bool,
-}
-
-impl Default for MintMeltSettings {
-    fn default() -> Self {
-        Self {
-            min_amount: Amount::from(1),
-            max_amount: Amount::from(500000),
-            enabled: true,
-        }
-    }
-}
+    enabled: bool = true,
+};
 
 const MSAT_IN_SAT: u64 = 1000;
 
 /// Helper function to convert units
-pub fn to_unit<T>(
-    amount: T,
-    current_unit: &CurrencyUnit,
-    target_unit: &CurrencyUnit,
-) -> Result<Amount, Error>
-where
-    T: Into<u64>,
-{
-    let amount = amount.into();
-    match (current_unit, target_unit) {
-        (CurrencyUnit::Sat, CurrencyUnit::Sat) => Ok(amount.into()),
-        (CurrencyUnit::Msat, CurrencyUnit::Msat) => Ok(amount.into()),
-        (CurrencyUnit::Sat, CurrencyUnit::Msat) => Ok((amount * MSAT_IN_SAT).into()),
-        (CurrencyUnit::Msat, CurrencyUnit::Sat) => Ok((amount / MSAT_IN_SAT).into()),
-        (CurrencyUnit::Usd, CurrencyUnit::Usd) => Ok(amount.into()),
-        (CurrencyUnit::Eur, CurrencyUnit::Eur) => Ok(amount.into()),
-        _ => Err(Error::CannotConvertUnits),
+pub fn toUnit(
+    amount: u64,
+    current_unit: CurrencyUnit,
+    target_unit: CurrencyUnit,
+) !Amount {
+    switch (current_unit) {
+        .sat => switch (target_unit) {
+            .sat => return amount,
+            .msat => amount * MSAT_IN_SAT,
+            else => {},
+        },
+        .msat => switch (target_unit) {
+            .sat => return amount / MSAT_IN_SAT,
+            .msat => return amount,
+            else => {},
+        },
+        .usd => switch (target_unit) {
+            .usd => return amount,
+            else => {},
+        },
+        .eur => switch (target_unit) {
+            .eur => return amount,
+            else => {},
+        },
+        else => {},
     }
+
+    return error.CannotConvertUnits;
 }
 
+// TODO implement MintLighting interface here
