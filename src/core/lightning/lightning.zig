@@ -1,5 +1,7 @@
 //! Mint Lightning
 const root = @import("../../lib.zig");
+const std = @import("std");
+
 const Bolt11Invoice = root.lightning_invoices.Bolt11Invoice;
 const Amount = root.core.amount.Amount;
 const MeltQuoteState = root.core.nuts.nut05.QuoteState;
@@ -25,6 +27,12 @@ pub const PayInvoiceResponse = struct {
     status: MeltQuoteState,
     /// Totoal Amount Spent
     total_spent: Amount,
+
+    pub fn deinit(self: PayInvoiceResponse, allocator: std.mem.Allocator) void {
+        allocator.free(self.payment_hash);
+
+        if (self.payment_preimage) |p| allocator.free(p);
+    }
 };
 
 /// Payment quote response
@@ -35,6 +43,10 @@ pub const PaymentQuoteResponse = struct {
     amount: Amount,
     /// Fee required for melt
     fee: u64,
+
+    pub fn deinit(self: PaymentQuoteResponse, allocator: std.mem.Allocator) void {
+        allocator.free(self.request_lookup_id);
+    }
 };
 
 /// Ln backend settings
