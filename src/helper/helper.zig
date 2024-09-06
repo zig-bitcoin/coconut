@@ -1,5 +1,13 @@
 const std = @import("std");
 
+// TODO add atomic ref count?
+pub fn RWMutex(comptime T: type) type {
+    return struct {
+        value: T,
+        lock: std.Thread.RwLock,
+    };
+}
+
 pub inline fn copySlice(allocator: std.mem.Allocator, slice: []const u8) ![]u8 {
     const allocated = try allocator.alloc(u8, slice.len);
 

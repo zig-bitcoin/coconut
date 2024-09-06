@@ -27,16 +27,17 @@ pub const MintQuote = struct {
 
     /// Create new [`MintQuote`]
     pub fn init(
-        mint_url: std.Uri,
+        allocator: std.mem.Allocator,
+        mint_url: []const u8,
         request: []const u8,
         unit: CurrencyUnit,
         amount: amount_lib.Amount,
         expiry: u64,
         request_lookup_id: []const u8,
-    ) MintQuote {
+    ) !MintQuote {
         const id = zul.UUID.v4();
 
-        return .{
+        const mint_quote: MintQuote = .{
             .mint_url = mint_url,
             .id = id.bin,
             .amount = amount,
@@ -46,6 +47,8 @@ pub const MintQuote = struct {
             .expiry = expiry,
             .request_lookup_id = request_lookup_id,
         };
+
+        return try mint_quote.clone(allocator);
     }
 
     pub fn deinit(self: *const MintQuote, allocator: std.mem.Allocator) void {
@@ -54,15 +57,20 @@ pub const MintQuote = struct {
     }
 
     pub fn clone(self: *const MintQuote, allocator: std.mem.Allocator) !MintQuote {
-        const request_lookup = try allocator.alloc(u8, self.request_lookup_id.len);
+        const request_lookup = try allocator.dupe(u8, self.request_lookup_id);
         errdefer allocator.free(request_lookup);
 
-        const request = try allocator.alloc(u8, self.request.len);
+        const request = try allocator.dupe(u8, self.request);
         errdefer allocator.free(request);
 
+        const mint_url = try allocator.dupe(u8, self.mint_url);
+        errdefer allocator.free(mint_url);
+
         var cloned = self.*;
+
         cloned.request = request;
         cloned.request_lookup_id = request_lookup;
+        cloned.mint_url = mint_url;
 
         return cloned;
     }
