@@ -2,6 +2,7 @@
 const core = @import("../core/lib.zig");
 const httpz = @import("httpz");
 const std = @import("std");
+const router_handlers = @import("router_handlers.zig");
 
 const Mint = core.mint.Mint;
 const CurrencyUnit = core.nuts.CurrencyUnit;
@@ -16,7 +17,7 @@ pub fn createMintServer(
     // ln: HashMap<LnKey, Arc<dyn MintLightning<Err = cdk_lightning::Error> + Send + Sync>>,
     quote_ttl: u64,
     server_options: httpz.Config,
-) !httpz.ServerApp(MintState) {
+) !httpz.Server(MintState) {
     // TODO do we need copy
     const state = MintState{
         .mint = mint,
@@ -24,10 +25,13 @@ pub fn createMintServer(
         .quote_ttl = quote_ttl,
     };
 
-    var srv = try httpz.ServerApp(MintState).init(allocator, server_options, state);
+    var srv = try httpz.Server(MintState).init(allocator, server_options, state);
     errdefer srv.deinit();
 
     // apply routes
+    var router = srv.router(.{});
+
+    router.get("/v1/keys", router_handlers.getKeys, .{});
 
     return srv;
 }

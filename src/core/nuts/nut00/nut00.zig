@@ -225,6 +225,15 @@ pub const CurrencyUnit = enum {
     /// Euro
     eur,
 
+    pub inline fn derivationIndex(self: *const CurrencyUnit) u32 {
+        return switch (self.*) {
+            .sat => 0,
+            .msat => 1,
+            .usd => 2,
+            .eur => 3,
+        };
+    }
+
     pub fn fromString(s: []const u8) !CurrencyUnit {
         const kv = std.StaticStringMap(CurrencyUnit).initComptime(&.{
             .{

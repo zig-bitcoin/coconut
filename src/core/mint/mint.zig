@@ -1,7 +1,8 @@
 const std = @import("std");
 const core = @import("../lib.zig");
 const secp256k1 = @import("secp256k1");
-const bip32 = @import("bitcoin").bitcoin.bip32;
+const bitcoin = @import("bitcoin");
+const bip32 = bitcoin.bitcoin.bip32;
 const helper = @import("../../helper/helper.zig");
 const nuts = core.nuts;
 
@@ -9,6 +10,7 @@ const RWMutex = helper.RWMutex;
 const MintInfo = core.nuts.MintInfo;
 const MintQuoteBolt11Response = core.nuts.nut04.MintQuoteBolt11Response;
 const MintQuoteState = core.nuts.nut04.QuoteState;
+const MintKeySet = core.nuts.MintKeySet;
 
 pub const MintQuote = @import("types.zig").MintQuote;
 pub const MeltQuote = @import("types.zig").MeltQuote;
@@ -51,8 +53,8 @@ pub const MintKeySetInfo = struct {
         allocator.free(self.derivation_path);
     }
 
-    pub fn clone(self: *const MintKeySetInfo, allocator: std.mem.Allocator) !MintKeySetInfo {
-        var cloned = self.*;
+    pub fn clone(self: MintKeySetInfo, allocator: std.mem.Allocator) !MintKeySetInfo {
+        var cloned = self;
 
         const derivation_path = try allocator.alloc(bip32.ChildNumber, self.derivation_path.len);
         errdefer allocator.free(derivation_path);
@@ -67,11 +69,11 @@ pub const MintKeySetInfo = struct {
 /// Cashu Mint
 pub const Mint = struct {
     /// Mint Url
-    mint_url: std.Uri,
+    mint_url: []const u8,
     /// Mint Info
     mint_info: MintInfo,
     /// Mint Storage backend
-    localstore: helper.RWMutex(MintMemoryDatabase),
+    localstore: helper.RWMutex(*MintMemoryDatabase),
     /// Active Mint Keysets
     keysets: RWMutex(std.AutoHashMap(nuts.Id, nuts.MintKeySet)),
     secp_ctx: secp256k1.Secp256k1,
@@ -79,6 +81,83 @@ pub const Mint = struct {
 
     // using for allocating data belongs to mint
     allocator: std.mem.Allocator,
+
+    /// Create new [`Mint`]
+    pub fn init(
+        allocator: std.mem.Allocator,
+        mint_url: []const u8,
+        seed: []const u8,
+        mint_info: MintInfo,
+        localstore: *MintMemoryDatabase,
+        // Hashmap where the key is the unit and value is (input fee ppk, max_order)
+        supported_units: std.AutoHashMap(core.nuts.CurrencyUnit, struct { u64, u8 }),
+    ) !Mint {
+        const secp_ctx = try secp256k1.Secp256k1.genNew();
+        errdefer secp_ctx.deinit();
+
+        const xpriv = try bip32.ExtendedPrivKey.initMaster(.MAINNET, seed);
+
+        var active_keysets = std.AutoHashMap(core.nuts.Id, MintKeySet).init(allocator);
+        errdefer active_keysets.deinit();
+
+        const keyset_infos = try localstore.getKeysetInfos(allocator);
+        defer keyset_infos.deinit();
+
+        var active_keyset_units = std.ArrayList(core.nuts.CurrencyUnit).init(allocator);
+        errdefer active_keyset_units.deinit();
+
+        if (keyset_infos.value.items.len > 0) {
+            std.log.debug("setting all keysets to inactive, size = {d}", .{keyset_infos.value.items.len});
+            // TODO this part of code
+        }
+
+        var it = supported_units.iterator();
+
+        while (it.next()) |su_entry| {
+            const unit = su_entry.key_ptr.*;
+            const fee, const max_order = su_entry.value_ptr.*;
+
+            for (active_keyset_units.items) |u| {
+                if (std.meta.eql(u, unit)) break;
+            } else {
+                // not contains in array
+                const derivation_path = derivationPathFromUnit(unit, 0);
+
+                const keyset, const keyset_info = try createNewKeysetAlloc(
+                    allocator,
+                    secp_ctx,
+                    xpriv,
+                    &derivation_path,
+                    0,
+                    unit,
+                    max_order,
+                    fee,
+                );
+                defer keyset_info.deinit(allocator);
+
+                const id = keyset_info.id;
+                _ = try localstore.addKeysetInfo(keyset_info);
+                try localstore.setActiveKeyset(unit, id);
+                try active_keysets.put(id, keyset);
+            }
+        }
+
+        return .{
+            .allocator = allocator,
+            .keysets = .{
+                .value = active_keysets,
+                .lock = .{},
+            },
+            .mint_url = mint_url,
+            .secp_ctx = secp_ctx,
+            .xpriv = xpriv,
+            .localstore = .{
+                .value = localstore,
+                .lock = .{},
+            },
+            .mint_info = mint_info,
+        };
+    }
 
     /// Creating new [`MintQuote`], all arguments are cloned and reallocated
     /// caller responsible on free resources of result
@@ -149,7 +228,7 @@ pub const Mint = struct {
         defer keyset_infos.deinit();
 
         for (keyset_infos.value.items) |keyset_info| {
-            try self.ensureKeysetLoaded(allocator, keyset_info.id);
+            try self.ensureKeysetLoaded(keyset_info.id);
         }
 
         self.keysets.lock.lockShared();
@@ -160,7 +239,7 @@ pub const Mint = struct {
 
         var result = try std.ArrayList(core.nuts.KeySet).initCapacity(allocator, it.len);
         errdefer {
-            for (result.items) |ks| ks.deinit();
+            for (result.items) |*ks| ks.deinit();
             result.deinit();
         }
 
@@ -208,7 +287,7 @@ pub const Mint = struct {
     pub fn generateKeyset(self: *Mint, allocator: std.mem.Allocator, keyset_info: MintKeySetInfo) !core.nuts.MintKeySet {
         return try core.nuts.MintKeySet.generateFromXpriv(
             allocator,
-            &self.secp_ctx,
+            self.secp_ctx,
             self.xpriv,
             keyset_info.max_order,
             keyset_info.unit,
@@ -216,3 +295,46 @@ pub const Mint = struct {
         );
     }
 };
+
+/// Generate new [`MintKeySetInfo`] from path
+fn createNewKeysetAlloc(
+    allocator: std.mem.Allocator,
+    secp: secp256k1.Secp256k1,
+    xpriv: bip32.ExtendedPrivKey,
+    derivation_path: []const bip32.ChildNumber,
+    derivation_path_index: ?u32,
+    unit: core.nuts.CurrencyUnit,
+    max_order: u8,
+    input_fee_ppk: u64,
+) !struct { MintKeySet, MintKeySetInfo } {
+    const keyset = try MintKeySet.generate(
+        allocator,
+        secp,
+        xpriv
+            .derivePriv(secp, derivation_path) catch @panic("RNG busted"),
+        unit,
+        max_order,
+    );
+
+    const keyset_info = try MintKeySetInfo.clone(.{
+        .id = keyset.id,
+        .unit = keyset.unit,
+        .active = true,
+        .valid_from = @intCast(std.time.timestamp()),
+        .valid_to = null,
+        .derivation_path = derivation_path,
+        .derivation_path_index = derivation_path_index,
+        .max_order = max_order,
+        .input_fee_ppk = input_fee_ppk,
+    }, allocator);
+
+    return .{ keyset, keyset_info };
+}
+
+fn derivationPathFromUnit(unit: core.nuts.CurrencyUnit, index: u32) [3]bip32.ChildNumber {
+    return .{
+        bip32.ChildNumber.fromHardenedIdx(0) catch @panic("0 is a valid index"),
+        bip32.ChildNumber.fromHardenedIdx(unit.derivationIndex()) catch @panic("0 is a valid index"),
+        bip32.ChildNumber.fromHardenedIdx(index) catch @panic("0 is a valid index"),
+    };
+}
