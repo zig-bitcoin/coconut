@@ -139,6 +139,10 @@ pub const KeySet = struct {
     unit: CurrencyUnit,
     /// Keyset [`Keys`]
     keys: Keys,
+
+    pub fn deinit(self: *KeySet) void {
+        self.keys.deinit();
+    }
 };
 
 /// KeySetInfo

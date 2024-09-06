@@ -77,6 +77,9 @@ pub const Mint = struct {
     secp_ctx: secp256k1.Secp256k1,
     xpriv: bip32.ExtendedPrivKey,
 
+    // using for allocating data belongs to mint
+    allocator: std.mem.Allocator,
+
     /// Creating new [`MintQuote`], all arguments are cloned and reallocated
     /// caller responsible on free resources of result
     pub fn newMintQuote(
@@ -138,5 +141,78 @@ pub const Mint = struct {
             .expiry = quote.expiry,
         };
         return try result.clone(allocator);
+    }
+
+    /// Retrieve the public keys of the active keyset for distribution to wallet clients
+    pub fn pubkeys(self: *Mint, allocator: std.mem.Allocator) !core.nuts.KeysResponse {
+        const keyset_infos = try self.localstore.value.getKeysetInfos(allocator);
+        defer keyset_infos.deinit();
+
+        for (keyset_infos.value.items) |keyset_info| {
+            try self.ensureKeysetLoaded(allocator, keyset_info.id);
+        }
+
+        self.keysets.lock.lockShared();
+        defer self.keysets.lock.unlockShared();
+
+        // core.nuts.KeySet
+        var it = self.keysets.value.valueIterator();
+
+        var result = try std.ArrayList(core.nuts.KeySet).initCapacity(allocator, it.len);
+        errdefer {
+            for (result.items) |ks| ks.deinit();
+            result.deinit();
+        }
+
+        while (it.next()) |k| {
+            result.appendAssumeCapacity(try k.toKeySet(allocator));
+        }
+
+        return .{
+            .keysets = result.items,
+        };
+    }
+
+    /// Ensure Keyset is loaded in mint
+    pub fn ensureKeysetLoaded(self: *Mint, id: core.nuts.Id) !void {
+        // check if keyset already in
+        {
+            self.keysets.lock.lockShared();
+            defer self.keysets.lock.lockShared();
+
+            if (self.keysets.value.contains(id)) return;
+        }
+
+        const keyset_info = try self.localstore.value.getKeysetInfo(self.allocator, id) orelse return error.UnknownKeySet;
+        errdefer keyset_info.deinit(self.allocator);
+
+        self.keysets.lock.lock();
+        defer self.keysets.lock.unlock();
+
+        // ensuring that map got enough space
+        try self.keysets.value.ensureUnusedCapacity(1);
+
+        // allocating through internal because we own this inside Mint
+        const mint_keyset = try self.generateKeyset(self.allocator, keyset_info);
+        errdefer mint_keyset.deinit(self.allocator);
+
+        self.keysets.value.putAssumeCapacity(
+            id,
+            mint_keyset,
+        );
+
+        return;
+    }
+
+    /// Generate [`MintKeySet`] from [`MintKeySetInfo`]
+    pub fn generateKeyset(self: *Mint, allocator: std.mem.Allocator, keyset_info: MintKeySetInfo) !core.nuts.MintKeySet {
+        return try core.nuts.MintKeySet.generateFromXpriv(
+            allocator,
+            &self.secp_ctx,
+            self.xpriv,
+            keyset_info.max_order,
+            keyset_info.unit,
+            keyset_info.derivation_path,
+        );
     }
 };

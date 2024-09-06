@@ -32,8 +32,8 @@
             .hash = "12204099afd10139d640e1c5b5338c7434bf5d7bb8336728007f575b8b3a05821e96",
         },
         .httpz = .{
-            .url = "git+https://github.com/karlseguin/http.zig#7080d974aeee6438038ae7744509367317fdf5a0",
-            .hash = "1220f5faa5dd0ed08950e24ed1923e3a4ad1e431196c69e745098e4364de91ffcbc4",
+            .url = "git+https://github.com/karlseguin/http.zig#40d05e72ac181e37281304d1cfd3765c911eeec6",
+            .hash = "122006f7a7c98b90d1c7f461d81d46fd3c07ef81696672629ceafcf2308a62e8466b",
         },
         .pg = .{
             .url = "https://github.com/karlseguin/pg.zig/archive/1491270ac43c7eba91992bb06b3758254c36e39a.zip",
