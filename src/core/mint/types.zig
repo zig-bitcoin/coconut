@@ -11,7 +11,7 @@ pub const MintQuote = struct {
     /// Quote id
     id: [16]u8,
     /// Mint Url
-    mint_url: std.Uri,
+    mint_url: []const u8,
     /// Amount of quote
     amount: amount_lib.Amount,
     /// Unit of quote
@@ -26,7 +26,8 @@ pub const MintQuote = struct {
     request_lookup_id: []const u8,
 
     /// Create new [`MintQuote`]
-    pub fn init(
+    /// creating copy of arguments, so caller responsible on deinit resources
+    pub fn initAlloc(
         allocator: std.mem.Allocator,
         mint_url: []const u8,
         request: []const u8,

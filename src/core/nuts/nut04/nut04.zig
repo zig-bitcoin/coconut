@@ -53,7 +53,7 @@ pub const Settings = struct {
         method: PaymentMethod,
     ) ?MintMethodSettings {
         for (self.methods) |method_settings| {
-            if (method_settings.method == method and method_settings.unit == unit) return method_settings;
+            if (std.meta.eql(method_settings.method, method) and std.meta.eql(method_settings.unit, unit)) return method_settings;
         }
 
         return null;
@@ -97,7 +97,7 @@ pub const MintQuoteBolt11Response = struct {
     pub fn fromMintQuote(mint_quote: MintQuote) !MintQuoteBolt11Response {
         const paid = mint_quote.state == .paid;
         return .{
-            .quote = mint_quote.id,
+            .quote = &mint_quote.id,
             .request = mint_quote.request,
             .paid = paid,
             .state = mint_quote.state,
@@ -167,68 +167,3 @@ pub const MintQuoteBolt11Response = struct {
         };
     }
 };
-
-// A custom deserializer is needed until all mints
-// update some will return without the required state.
-// impl<'de> Deserialize<'de> for MintQuoteBolt11Response {
-//     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-//     where
-//         D: Deserializer<'de>,
-//     {
-//         let value = Value::deserialize(deserializer)?;
-
-//         let quote: String = serde_json::from_value(
-//             value
-//                 .get("quote")
-//                 .ok_or(serde::de::Error::missing_field("quote"))?
-//                 .clone(),
-//         )
-//         .map_err(|_| serde::de::Error::custom("Invalid quote id string"))?;
-
-//         let request: String = serde_json::from_value(
-//             value
-//                 .get("request")
-//                 .ok_or(serde::de::Error::missing_field("request"))?
-//                 .clone(),
-//         )
-//         .map_err(|_| serde::de::Error::custom("Invalid request string"))?;
-
-//         let paid: Option<bool> = value.get("paid").and_then(|p| p.as_bool());
-
-//         let state: Option<String> = value
-//             .get("state")
-//             .and_then(|s| serde_json::from_value(s.clone()).ok());
-
-//         let (state, paid) = match (state, paid) {
-//             (None, None) => return Err(serde::de::Error::custom("State or paid must be defined")),
-//             (Some(state), _) => {
-//                 let state: QuoteState = QuoteState::from_str(&state)
-//                     .map_err(|_| serde::de::Error::custom("Unknown state"))?;
-//                 let paid = state == QuoteState::Paid;
-
-//                 (state, paid)
-//             }
-//             (None, Some(paid)) => {
-//                 let state = if paid {
-//                     QuoteState::Paid
-//                 } else {
-//                     QuoteState::Unpaid
-//                 };
-//                 (state, paid)
-//             }
-//         };
-
-//         let expiry = value
-//             .get("expiry")
-//             .ok_or(serde::de::Error::missing_field("expiry"))?
-//             .as_u64();
-
-//         Ok(Self {
-//             quote,
-//             request,
-//             paid: Some(paid),
-//             state,
-//             expiry,
-//         })
-//     }
-// }

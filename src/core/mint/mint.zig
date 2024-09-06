@@ -14,6 +14,8 @@ pub const MintQuote = @import("types.zig").MintQuote;
 pub const MeltQuote = @import("types.zig").MeltQuote;
 pub const MintMemoryDatabase = core.mint_memory.MintMemoryDatabase;
 
+// TODO implement tests
+
 /// Mint Fee Reserve
 pub const FeeReserve = struct {
     /// Absolute expected min fee
@@ -78,7 +80,7 @@ pub const Mint = struct {
     /// Creating new [`MintQuote`], all arguments are cloned and reallocated
     /// caller responsible on free resources of result
     pub fn newMintQuote(
-        self: *const Mint,
+        self: *Mint,
         allocator: std.mem.Allocator,
         mint_url: []const u8,
         request: []const u8,
@@ -89,13 +91,14 @@ pub const Mint = struct {
     ) !MintQuote {
         const nut04 = self.mint_info.nuts.nut04;
         if (nut04.disabled) return error.MintingDisabled;
+
         if (nut04.getSettings(unit, .bolt11)) |settings| {
             if (settings.max_amount) |max_amount| if (amount > max_amount) return error.MintOverLimit;
 
             if (settings.min_amount) |min_amount| if (amount < min_amount) return error.MintUnderLimit;
         } else return error.UnsupportedUnit;
 
-        const quote = try MintQuote.init(allocator, mint_url, request, unit, amount, expiry, ln_lookup.clone());
+        const quote = try MintQuote.initAlloc(allocator, mint_url, request, unit, amount, expiry, ln_lookup);
         errdefer quote.deinit(allocator);
 
         std.log.debug("New mint quote: {any}", .{quote});
@@ -110,7 +113,7 @@ pub const Mint = struct {
 
     /// Check mint quote
     /// caller own result and should deinit
-    pub fn checkMintQuote(self: *const Mint, allocator: std.mem.Allocator, quote_id: [16]u8) !MintQuoteBolt11Response {
+    pub fn checkMintQuote(self: *Mint, allocator: std.mem.Allocator, quote_id: [16]u8) !MintQuoteBolt11Response {
         const quote = v: {
             self.localstore.lock.lockShared();
             defer self.localstore.lock.unlockShared();
@@ -128,7 +131,7 @@ pub const Mint = struct {
         };
 
         const result = MintQuoteBolt11Response{
-            .quote = quote.id,
+            .quote = &quote.id,
             .request = quote.request,
             .paid = paid,
             .state = state,
