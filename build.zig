@@ -192,6 +192,7 @@ pub fn build(b: *std.Build) !void {
         exe.root_module.addImport("secp256k1", secp256k1.module("secp256k1"));
         exe.root_module.linkLibrary(secp256k1.artifact("libsecp"));
         exe.root_module.addImport("pg", pg.module("pg"));
+        exe.root_module.addImport("bitcoin", bitcoin_zig.module("bitcoin"));
 
         // Add dependency modules to the executable.
         for (deps) |mod| exe.root_module.addImport(

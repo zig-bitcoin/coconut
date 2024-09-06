@@ -90,7 +90,7 @@ pub const Mint = struct {
         mint_info: MintInfo,
         localstore: *MintMemoryDatabase,
         // Hashmap where the key is the unit and value is (input fee ppk, max_order)
-        supported_units: std.AutoHashMap(core.nuts.CurrencyUnit, struct { u64, u8 }),
+        supported_units: std.AutoHashMap(core.nuts.CurrencyUnit, std.meta.Tuple(&.{ u64, u8 })),
     ) !Mint {
         const secp_ctx = try secp256k1.Secp256k1.genNew();
         errdefer secp_ctx.deinit();

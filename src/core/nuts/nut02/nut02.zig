@@ -61,7 +61,6 @@ pub const Id = struct {
     }
 
     pub fn jsonStringify(self: *const Id, out: anytype) !void {
-        // TODO use version
         try out.write(std.fmt.bytesToHex(self.toBytes(), .lower));
     }
 

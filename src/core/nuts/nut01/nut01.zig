@@ -7,6 +7,7 @@ pub const KeysResponse = struct {
     /// Keysets
     keysets: []const KeySet,
 
+    // we need it only because of logic, keyset not parsed successfully we ignore it and parse next
     pub fn jsonParse(allocator: std.mem.Allocator, source: anytype, options: std.json.ParseOptions) !KeysResponse {
         if (try source.next() != .object_begin) return error.UnexpectedToken;
 
@@ -77,6 +78,19 @@ pub const Keys = struct {
         // array_end
         _ = try source.next();
         return .{ .inner = result };
+    }
+
+    pub fn jsonStringify(self: @This(), out: anytype) !void {
+        try out.beginObject();
+
+        var it = self.inner.iterator();
+
+        while (it.next()) |entry| {
+            try out.objectField(entry.key_ptr.*);
+            try out.write(entry.value_ptr);
+        }
+
+        try out.endObject();
     }
 
     pub fn deinit(self: *Keys) void {
