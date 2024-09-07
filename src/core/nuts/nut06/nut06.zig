@@ -110,7 +110,7 @@ pub const MintInfo = struct {
     /// Contact info
     contact: ?[]const ContactInfo = null,
     /// shows which NUTs the mint supports
-    nuts: Nuts,
+    nuts: Nuts = .{},
     /// Mint's icon URL
     mint_icon_url: ?[]const u8 = null,
     /// message of the day that the wallet must display to the user

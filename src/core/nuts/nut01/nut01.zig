@@ -121,6 +121,10 @@ pub const MintKeys = struct {
         MintKeyPair,
     ),
 
+    pub fn deinit(self: *MintKeys) void {
+        self.inner.deinit();
+    }
+
     /// Create new [`MintKeys`]
     pub inline fn initFrom(allocator: std.mem.Allocator, map: std.AutoHashMap(u64, MintKeyPair)) !MintKeys {
         return .{

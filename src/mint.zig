@@ -25,7 +25,7 @@ pub fn main() !void {
     var supported_units = std.AutoHashMap(core.nuts.CurrencyUnit, std.meta.Tuple(&.{ u64, u8 })).init(gpa.allocator());
     defer supported_units.deinit();
 
-    var db = try MintDatabase.init(gpa.allocator());
+    var db = try MintDatabase.initManaged(gpa.allocator());
     defer db.deinit();
 
     var mint = try Mint.init(gpa.allocator(), "MintUrl", &try mnemonic.toSeedNormalized(&.{}), .{

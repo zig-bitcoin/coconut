@@ -166,6 +166,10 @@ pub const MintKeySet = struct {
     /// Keyset [`MintKeys`]
     keys: MintKeys,
 
+    pub fn deinit(self: *MintKeySet) void {
+        self.keys.deinit();
+    }
+
     pub fn toKeySet(self: MintKeySet, arena: std.mem.Allocator) !KeySet {
         return .{
             .id = self.id,

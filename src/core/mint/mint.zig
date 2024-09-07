@@ -11,6 +11,7 @@ const MintInfo = core.nuts.MintInfo;
 const MintQuoteBolt11Response = core.nuts.nut04.MintQuoteBolt11Response;
 const MintQuoteState = core.nuts.nut04.QuoteState;
 const MintKeySet = core.nuts.MintKeySet;
+const CurrencyUnit = core.nuts.CurrencyUnit;
 
 pub const MintQuote = @import("types.zig").MintQuote;
 pub const MeltQuote = @import("types.zig").MeltQuote;
@@ -109,6 +110,104 @@ pub const Mint = struct {
         if (keyset_infos.value.items.len > 0) {
             std.log.debug("setting all keysets to inactive, size = {d}", .{keyset_infos.value.items.len});
             // TODO this part of code
+
+            for (keyset_infos.value.items) |keyset| {
+                // Set all to in active
+                var ks = keyset;
+                ks.active = false;
+
+                try localstore.addKeysetInfo(ks);
+            }
+
+            const keysets_by_unit = v: {
+                // allocating through arena for easy deallocation
+                var result = std.AutoHashMap(CurrencyUnit, std.ArrayList(MintKeySetInfo)).init(keyset_infos.arena.allocator());
+
+                for (keyset_infos.value.items) |ks| {
+                    var gop = try result.getOrPut(ks.unit);
+                    if (!gop.found_existing) {
+                        // already exist
+                        gop.value_ptr.* = std.ArrayList(MintKeySetInfo).init(keyset_infos.arena.allocator());
+                    }
+
+                    try gop.value_ptr.append(ks);
+                }
+
+                break :v result;
+            };
+
+            var it = keysets_by_unit.iterator();
+
+            while (it.next()) |entry| {
+                const unit = entry.key_ptr.*;
+                const _keysets = entry.value_ptr.*;
+
+                std.sort.block(MintKeySetInfo, _keysets.items, {}, (struct {
+                    fn compare(_: void, l: MintKeySetInfo, r: MintKeySetInfo) bool {
+                        if (r.derivation_path_index) |r_dpi| {
+                            if (l.derivation_path_index) |l_dpi| {
+                                if (l_dpi < r_dpi) return true;
+                            } else return true;
+                        }
+
+                        // other all cases false
+                        return false;
+                    }
+                }).compare);
+
+                const highest_index_keyset = _keysets.getLast();
+
+                var keysets = try std.ArrayList(MintKeySetInfo).initCapacity(keyset_infos.arena.allocator(), _keysets.items.len);
+
+                for (_keysets.items) |ks| {
+                    if (ks.derivation_path_index != null) keysets.appendAssumeCapacity(ks);
+                }
+
+                if (supported_units.get(unit)) |supp_unit| {
+                    const input_fee_ppk, const max_order = supp_unit;
+
+                    const derivation_path_index: u32 = if (keysets.items.len == 0)
+                        1
+                    else if (highest_index_keyset.input_fee_ppk == input_fee_ppk and highest_index_keyset.max_order == max_order) {
+                        const id = highest_index_keyset.id;
+                        const keyset = try MintKeySet.generateFromXpriv(
+                            keyset_infos.arena.allocator(),
+                            secp_ctx,
+                            xpriv,
+                            highest_index_keyset.max_order,
+                            highest_index_keyset.unit,
+                            highest_index_keyset.derivation_path,
+                        );
+
+                        try active_keysets.put(id, keyset);
+                        var keyset_info = highest_index_keyset;
+                        keyset_info.active = true;
+
+                        try localstore.addKeysetInfo(keyset_info);
+                        try localstore.setActiveKeyset(unit, id);
+                        continue;
+                    } else highest_index_keyset.derivation_path_index orelse 0 + 1;
+
+                    const derivation_path = derivationPathFromUnit(unit, derivation_path_index);
+
+                    const keyset, const keyset_info = try createNewKeysetAlloc(
+                        keyset_infos.arena.allocator(),
+                        secp_ctx,
+                        xpriv,
+                        &derivation_path,
+                        derivation_path_index,
+                        unit,
+                        max_order,
+                        input_fee_ppk,
+                    );
+
+                    const id = keyset_info.id;
+                    try localstore.addKeysetInfo(keyset_info);
+                    try localstore.setActiveKeyset(unit, id);
+                    try active_keysets.put(id, keyset);
+                    try active_keyset_units.append(unit);
+                }
+            }
         }
 
         var it = supported_units.iterator();
@@ -294,6 +393,71 @@ pub const Mint = struct {
             keyset_info.derivation_path,
         );
     }
+
+    /// Return a list of all supported keysets
+    /// caller responsible to deallocate result
+    pub fn getKeysets(self: *Mint, allocator: std.mem.Allocator) !core.nuts.KeysetResponse {
+        const keysets = try self.localstore.value.getKeysetInfos(allocator);
+        defer keysets.deinit();
+
+        var _active_keysets = try self.localstore.value.getActiveKeysets(allocator);
+        defer _active_keysets.deinit();
+
+        var active_keysets = std.AutoHashMap(core.nuts.Id, void).init(allocator);
+        defer active_keysets.deinit();
+
+        var it = _active_keysets.valueIterator();
+        while (it.next()) |value| try active_keysets.put(value.*, {});
+
+        var result = try std.ArrayList(core.nuts.KeySetInfo).initCapacity(allocator, keysets.value.items.len);
+        errdefer result.deinit();
+
+        for (keysets.value.items) |ks| {
+            result.appendAssumeCapacity(.{
+                .id = ks.id,
+                .unit = ks.unit,
+                .active = active_keysets.contains(ks.id),
+                .input_fee_ppk = ks.input_fee_ppk,
+            });
+        }
+
+        return .{
+            .keysets = try result.toOwnedSlice(),
+        };
+    }
+
+    /// Add current keyset to inactive keysets
+    /// Generate new keyset
+    pub fn rotateKeyset(
+        self: *Mint,
+        allocator: std.mem.Allocator,
+        unit: nuts.CurrencyUnit,
+        derivation_path_index: u32,
+        max_order: u8,
+        input_fee_ppk: u64,
+    ) !void {
+        const derivation_path = derivationPathFromUnit(unit, derivation_path_index);
+        var keyset, const keyset_info = try createNewKeysetAlloc(
+            allocator,
+            self.secp_ctx,
+            self.xpriv,
+            &derivation_path,
+            derivation_path_index,
+            unit,
+            max_order,
+            input_fee_ppk,
+        );
+        defer keyset_info.deinit(allocator);
+        defer keyset.deinit();
+
+        const id = keyset_info.id;
+        try self.localstore.value.addKeysetInfo(keyset_info);
+        try self.localstore.value.setActiveKeyset(unit, id);
+
+        self.keysets.lock.lock();
+        defer self.keysets.lock.unlock();
+        try self.keysets.value.put(id, keyset);
+    }
 };
 
 /// Generate new [`MintKeySetInfo`] from path
@@ -337,4 +501,129 @@ fn derivationPathFromUnit(unit: core.nuts.CurrencyUnit, index: u32) [3]bip32.Chi
         bip32.ChildNumber.fromHardenedIdx(unit.derivationIndex()) catch @panic("0 is a valid index"),
         bip32.ChildNumber.fromHardenedIdx(index) catch @panic("0 is a valid index"),
     };
+}
+
+const expectEqual = std.testing.expectEqual;
+
+test "mint mod generate keyset from seed" {
+    const seed = "test_seed";
+
+    var secp = try secp256k1.Secp256k1.genNew();
+    defer secp.deinit();
+
+    var keyset = try MintKeySet.generateFromSeed(
+        std.testing.allocator,
+        secp,
+        seed,
+        2,
+        .sat,
+        &derivationPathFromUnit(.sat, 0),
+    );
+    defer keyset.deinit();
+
+    try expectEqual(.sat, keyset.unit);
+    try expectEqual(2, keyset.keys.inner.count());
+
+    try expectEqual(try secp256k1.PublicKey.fromString("0257aed43bf2c1cdbe3e7ae2db2b27a723c6746fc7415e09748f6847916c09176e"), keyset.keys.inner.get(1).?.public_key);
+    try expectEqual(try secp256k1.PublicKey.fromString("03ad95811e51adb6231613f9b54ba2ba31e4442c9db9d69f8df42c2b26fbfed26e"), keyset.keys.inner.get(2).?.public_key);
+}
+
+test "mint mod generate keyset from xpriv" {
+    const seed = "test_seed";
+
+    var secp = try secp256k1.Secp256k1.genNew();
+    defer secp.deinit();
+
+    const xpriv = try bip32.ExtendedPrivKey.initMaster(.MAINNET, seed);
+
+    var keyset = try MintKeySet.generateFromXpriv(
+        std.testing.allocator,
+        secp,
+        xpriv,
+        2,
+        .sat,
+        &derivationPathFromUnit(.sat, 0),
+    );
+    defer keyset.deinit();
+
+    try expectEqual(.sat, keyset.unit);
+    try expectEqual(2, keyset.keys.inner.count());
+
+    try expectEqual(try secp256k1.PublicKey.fromString("0257aed43bf2c1cdbe3e7ae2db2b27a723c6746fc7415e09748f6847916c09176e"), keyset.keys.inner.get(1).?.public_key);
+    try expectEqual(try secp256k1.PublicKey.fromString("03ad95811e51adb6231613f9b54ba2ba31e4442c9db9d69f8df42c2b26fbfed26e"), keyset.keys.inner.get(2).?.public_key);
+}
+
+const MintConfig = struct {
+    active_keysets: std.AutoHashMap(CurrencyUnit, core.nuts.Id),
+    keysets: []const MintKeySetInfo = &.{},
+    mint_quotes: []const MintQuote = &.{},
+    melt_quotes: []const MeltQuote = &.{},
+    pending_proofs: []const core.nuts.Proof = &.{},
+    spent_proofs: []const core.nuts.Proof = &.{},
+    blinded_signatures: std.AutoHashMap([33]u8, core.nuts.BlindSignature),
+    mint_url: []const u8 = &.{},
+    seed: []const u8 = &.{},
+    mint_info: MintInfo = .{},
+    supported_units: std.AutoHashMap(CurrencyUnit, std.meta.Tuple(&.{ u64, u8 })),
+};
+
+fn createMint(arena: std.mem.Allocator, config: MintConfig) !Mint {
+    const db_ptr = try arena.create(MintMemoryDatabase);
+    db_ptr.* = try MintMemoryDatabase.initFrom(arena, config.active_keysets, config.keysets, config.mint_quotes, config.melt_quotes, config.pending_proofs, config.spent_proofs, config.blinded_signatures);
+
+    return Mint.init(
+        arena,
+        config.mint_url,
+        config.seed,
+        config.mint_info,
+        db_ptr,
+        config.supported_units,
+    );
+}
+
+test "mint mod rotate keyset" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    const allocator = arena.allocator();
+
+    const config = MintConfig{
+        .active_keysets = std.AutoHashMap(CurrencyUnit, core.nuts.Id).init(allocator),
+        .blinded_signatures = std.AutoHashMap([33]u8, core.nuts.BlindSignature).init(allocator),
+        .supported_units = std.AutoHashMap(CurrencyUnit, std.meta.Tuple(&.{ u64, u8 })).init(allocator),
+    };
+
+    var mint = try createMint(allocator, config);
+
+    // dont deallocate due arena allocator
+    var keysets = try mint.getKeysets(allocator);
+
+    try expectEqual(0, keysets.keysets.len);
+
+    // generate the first keyset and set it to active
+    try mint.rotateKeyset(allocator, .sat, 0, 1, 1);
+
+    // dont deallocate due arena allocator
+    keysets = try mint.getKeysets(allocator);
+
+    try expectEqual(1, keysets.keysets.len);
+    try expectEqual(true, keysets.keysets[0].active);
+
+    const first_keyset_id = keysets.keysets[0].id;
+
+    // set the first keyset to inactive and generate a new keyset
+    try mint.rotateKeyset(allocator, .sat, 1, 1, 1);
+
+    // dont deallocate due arena allocator
+    keysets = try mint.getKeysets(allocator);
+
+    try expectEqual(2, keysets.keysets.len);
+
+    for (keysets.keysets) |keyset| {
+        if (std.meta.eql(keyset.id, first_keyset_id)) {
+            try expectEqual(false, keyset.active);
+        } else {
+            try expectEqual(true, keyset.active);
+        }
+    }
 }
