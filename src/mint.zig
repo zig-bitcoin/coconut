@@ -16,7 +16,7 @@ pub fn main() !void {
 
     var gpa = std.heap.GeneralPurposeAllocator(.{}).init;
     defer {
-        std.log.info("salam", .{});
+        // check on leak in debug
         std.debug.assert(gpa.deinit() == .ok);
     }
 
@@ -44,10 +44,39 @@ pub fn main() !void {
         .port = 5500,
         .address = "0.0.0.0",
     });
+    defer srv.deinit();
 
+    try handleInterrupt(&srv);
     std.log.info("Listening server", .{});
     try srv.listen();
 
     std.log.info("Stopped server", .{});
     // router.createMintServer(gpa.allocator(), bip39., , , )
+}
+
+pub fn handleInterrupt(srv: *httpz.Server(MintState)) !void {
+    const signal = struct {
+        var _srv: *httpz.Server(MintState) = undefined;
+
+        fn handler(sig: c_int) callconv(.C) void {
+            std.debug.assert(sig == std.posix.SIG.INT);
+            _srv.stop();
+        }
+    };
+
+    signal._srv = srv;
+
+    // call our shutdown function (below) when
+    // SIGINT or SIGTERM are received
+    std.posix.sigaction(std.posix.SIG.INT, &.{
+        .handler = .{ .handler = signal.handler },
+        .mask = std.posix.empty_sigset,
+        .flags = 0,
+    }, null);
+
+    std.posix.sigaction(std.posix.SIG.TERM, &.{
+        .handler = .{ .handler = signal.handler },
+        .mask = std.posix.empty_sigset,
+        .flags = 0,
+    }, null);
 }
