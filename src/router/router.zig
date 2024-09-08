@@ -3,6 +3,7 @@ const core = @import("../core/lib.zig");
 const httpz = @import("httpz");
 const std = @import("std");
 const router_handlers = @import("router_handlers.zig");
+const zul = @import("zul");
 
 const Mint = core.mint.Mint;
 const CurrencyUnit = core.nuts.CurrencyUnit;
@@ -32,6 +33,9 @@ pub fn createMintServer(
     var router = srv.router(.{});
 
     router.get("/v1/keys", router_handlers.getKeys, .{});
+    router.get("/v1/keysets", router_handlers.getKeysets, .{});
+    router.get("/v1/keys/:keyset_id", router_handlers.getKeysetPubkeys, .{});
+    router.post("/v1/checkstate", router_handlers.postCheck, .{});
 
     return srv;
 }

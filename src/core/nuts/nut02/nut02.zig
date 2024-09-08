@@ -170,11 +170,11 @@ pub const MintKeySet = struct {
         self.keys.deinit();
     }
 
-    pub fn toKeySet(self: MintKeySet, arena: std.mem.Allocator) !KeySet {
+    pub fn toKeySet(self: MintKeySet, allocator: std.mem.Allocator) !KeySet {
         return .{
             .id = self.id,
             .unit = self.unit,
-            .keys = try Keys.fromMintKeys(arena, self.keys),
+            .keys = try Keys.fromMintKeys(allocator, self.keys),
         };
     }
 

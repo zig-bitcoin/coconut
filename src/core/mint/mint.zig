@@ -458,6 +458,54 @@ pub const Mint = struct {
         defer self.keysets.lock.unlock();
         try self.keysets.value.put(id, keyset);
     }
+
+    /// Check state
+    pub fn checkState(
+        self: *Mint,
+        allocator: std.mem.Allocator,
+        check_state: core.nuts.nut07.CheckStateRequest,
+    ) !core.nuts.nut07.CheckStateResponse {
+        const _states = try self.localstore.value.getProofsStates(allocator, check_state.ys);
+        defer _states.deinit();
+
+        var states = try std.ArrayList(core.nuts.nut07.ProofState).initCapacity(allocator, _states.items.len);
+        errdefer {
+            for (states.items) |s| s.deinit(allocator);
+            states.deinit();
+        }
+
+        const min_length = @min(_states.items.len, check_state.ys.len);
+
+        for (check_state.ys[0..min_length], _states.items[0..min_length]) |y, s| {
+            const state: core.nuts.nut07.State = s orelse .unspent;
+
+            states.appendAssumeCapacity(.{
+                .y = y,
+                .state = state,
+                .witness = null,
+            });
+        }
+
+        return .{ .states = try states.toOwnedSlice() };
+    }
+
+    /// Retrieve the public keys of the active keyset for distribution to wallet clients
+    pub fn keysetPubkeys(self: *Mint, allocator: std.mem.Allocator, keyset_id: nuts.Id) !nuts.KeysResponse {
+        try self.ensureKeysetLoaded(keyset_id);
+        self.keysets.lock.lock();
+        defer self.keysets.lock.unlock();
+
+        const keyset = self.keysets.value.get(keyset_id) orelse return error.UnknownKeySet;
+
+        const keysets = try allocator.alloc(nuts.KeySet, 1);
+        errdefer allocator.free(keysets);
+
+        keysets[0] = try keyset.toKeySet(allocator);
+
+        return .{
+            .keysets = keysets,
+        };
+    }
 };
 
 /// Generate new [`MintKeySetInfo`] from path

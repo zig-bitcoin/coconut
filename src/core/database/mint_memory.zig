@@ -437,7 +437,7 @@ pub const MintMemoryDatabase = struct {
     }
 
     // caller must free result
-    pub fn getProofsStates(self: *Self, allocator: std.mem.Allocator, ys: []secp256k1.PublicKey) !std.ArrayList(?nuts.nut07.State) {
+    pub fn getProofsStates(self: *Self, allocator: std.mem.Allocator, ys: []const secp256k1.PublicKey) !std.ArrayList(?nuts.nut07.State) {
         self.lock.lockShared();
         defer self.lock.unlockShared();
 
