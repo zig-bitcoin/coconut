@@ -79,6 +79,10 @@ pub const ProofState = struct {
             },
         ),
     );
+
+    pub fn deinit(self: ProofState, allocator: std.mem.Allocator) void {
+        if (self.witness) |witness| allocator.free(witness);
+    }
 };
 
 /// Check Spendable Response [NUT-07]

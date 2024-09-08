@@ -107,26 +107,74 @@ pub fn build(b: *std.Build) !void {
     // **************************************************************
     // for lsp build on save step
     {
-        const exe = b.addExecutable(.{
-            .name = "coconut-mint",
-            .root_source_file = b.path("src/mint.zig"),
-            .target = target,
-            .optimize = optimize,
-        });
-        exe.root_module.addImport("httpz", httpz_module);
-        exe.root_module.addImport("pg", pg.module("pg"));
-        exe.root_module.addImport("zul", zul);
-
-        // Add dependency modules to the executable.
-        for (deps) |mod| exe.root_module.addImport(
-            mod.name,
-            mod.module,
-        );
-
-        // These two lines you might want to copy
-        // (make sure to rename 'exe_check')
         const check = b.step("check", "Check if foo compiles");
-        check.dependOn(&exe.step);
+        // mint binary
+        {
+            const exe = b.addExecutable(.{
+                .name = "mint",
+                .root_source_file = b.path("src/mint.zig"),
+                .target = target,
+                .optimize = optimize,
+            });
+            exe.root_module.addImport("zul", zul);
+            exe.root_module.addImport("secp256k1", secp256k1.module("secp256k1"));
+            exe.root_module.linkLibrary(secp256k1.artifact("libsecp"));
+            exe.root_module.addImport("httpz", httpz_module);
+            exe.root_module.addImport("bitcoin", bitcoin_zig.module("bitcoin"));
+            exe.root_module.addImport("base58", base58_module);
+
+            exe.root_module.addImport("channels", channel_m);
+
+            // Add dependency modules to the executable.
+            for (deps) |mod| exe.root_module.addImport(
+                mod.name,
+                mod.module,
+            );
+
+            check.dependOn(&exe.step);
+        }
+        // main
+        {
+            const exe = b.addExecutable(.{
+                .name = "main",
+                .root_source_file = b.path("src/main.zig"),
+                .target = target,
+                .optimize = optimize,
+            });
+            exe.root_module.addImport("httpz", httpz_module);
+            exe.root_module.addImport("pg", pg.module("pg"));
+            exe.root_module.addImport("zul", zul);
+
+            // Add dependency modules to the executable.
+            for (deps) |mod| exe.root_module.addImport(
+                mod.name,
+                mod.module,
+            );
+
+            check.dependOn(&exe.step);
+        }
+
+        // tests
+        {
+            const lib_unit_tests = b.addTest(.{
+                .root_source_file = b.path("src/lib.zig"),
+                .target = target,
+                .optimize = optimize,
+                .single_threaded = false,
+            });
+            lib_unit_tests.root_module.addImport("zul", zul);
+            lib_unit_tests.root_module.addImport("secp256k1", secp256k1.module("secp256k1"));
+            lib_unit_tests.root_module.linkLibrary(secp256k1.artifact("libsecp"));
+            lib_unit_tests.root_module.addImport("httpz", httpz_module);
+            lib_unit_tests.root_module.addImport("bitcoin", bitcoin_zig.module("bitcoin"));
+            lib_unit_tests.root_module.addImport("base58", base58_module);
+
+            lib_unit_tests.root_module.addImport("channels", channel_m);
+
+            const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);
+
+            check.dependOn(&run_lib_unit_tests.step);
+        }
     }
 
     // **************************************************************
@@ -144,6 +192,7 @@ pub fn build(b: *std.Build) !void {
         exe.root_module.addImport("secp256k1", secp256k1.module("secp256k1"));
         exe.root_module.linkLibrary(secp256k1.artifact("libsecp"));
         exe.root_module.addImport("pg", pg.module("pg"));
+        exe.root_module.addImport("bitcoin", bitcoin_zig.module("bitcoin"));
 
         // Add dependency modules to the executable.
         for (deps) |mod| exe.root_module.addImport(

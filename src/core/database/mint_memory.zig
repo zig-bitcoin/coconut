@@ -21,12 +21,74 @@ pub const MintMemoryDatabase = struct {
     mint_quotes: std.AutoHashMap([16]u8, MintQuote),
     melt_quotes: std.AutoHashMap([16]u8, MeltQuote),
     proofs: std.AutoHashMap([33]u8, nuts.Proof),
-    proof_state: std.AutoHashMap([33]u8, nuts.nut07.State),
+    proof_states: std.AutoHashMap([33]u8, nuts.nut07.State),
     blinded_signatures: std.AutoHashMap([33]u8, nuts.BlindSignature),
 
     allocator: std.mem.Allocator,
 
-    pub fn init(
+    /// initFrom - take own on all data there, except slices (only own data in slices)
+    pub fn initFrom(
+        allocator: std.mem.Allocator,
+        active_keysets: std.AutoHashMap(nuts.CurrencyUnit, nuts.Id),
+        keysets: []const MintKeySetInfo,
+        mint_quotes: []const MintQuote,
+        melt_quotes: []const MeltQuote,
+        pending_proofs: []const nuts.Proof,
+        spent_proofs: []const nuts.Proof,
+        blinded_signatures: std.AutoHashMap([33]u8, nuts.BlindSignature),
+    ) !MintMemoryDatabase {
+        var proofs = std.AutoHashMap([33]u8, nuts.Proof).init(allocator);
+        errdefer proofs.deinit();
+
+        var proof_states = std.AutoHashMap([33]u8, nuts.nut07.State).init(allocator);
+        errdefer proof_states.deinit();
+
+        for (pending_proofs) |proof| {
+            const y = (try dhke.hashToCurve(proof.secret.toBytes())).serialize();
+            try proofs.put(y, proof);
+            try proof_states.put(y, .pending);
+        }
+
+        for (spent_proofs) |proof| {
+            const y = (try dhke.hashToCurve(proof.secret.toBytes())).serialize();
+            try proofs.put(y, proof);
+            try proof_states.put(y, .pending);
+        }
+
+        var _keysets = std.AutoHashMap(nuts.Id, MintKeySetInfo).init(allocator);
+        errdefer _keysets.deinit();
+
+        for (keysets) |ks| {
+            try _keysets.put(ks.id, ks);
+        }
+
+        var _mint_quotes = std.AutoHashMap([16]u8, MintQuote).init(allocator);
+        errdefer _mint_quotes.deinit();
+
+        for (mint_quotes) |q| {
+            try _mint_quotes.put(q.id, q);
+        }
+        var _melt_quotes = std.AutoHashMap([16]u8, MeltQuote).init(allocator);
+        errdefer _melt_quotes.deinit();
+
+        for (melt_quotes) |q| {
+            try _melt_quotes.put(q.id, q);
+        }
+
+        return .{
+            .allocator = allocator,
+            .lock = .{},
+            .active_keysets = active_keysets,
+            .keysets = _keysets,
+            .mint_quotes = _mint_quotes,
+            .melt_quotes = _melt_quotes,
+            .proofs = proofs,
+            .proof_states = proof_states,
+            .blinded_signatures = blinded_signatures,
+        };
+    }
+
+    pub fn initManaged(
         allocator: std.mem.Allocator,
     ) !zul.Managed(Self) {
         var arena = try allocator.create(std.heap.ArenaAllocator);
@@ -57,7 +119,7 @@ pub const MintMemoryDatabase = struct {
                 .mint_quotes = mint_quotes,
                 .melt_quotes = melt_quotes,
                 .proofs = proofs,
-                .proof_state = proof_state,
+                .proof_states = proof_state,
                 .blinded_signatures = blinded_signatures,
                 .allocator = arena.allocator(),
             },
@@ -77,6 +139,14 @@ pub const MintMemoryDatabase = struct {
         defer self.lock.unlockShared();
 
         return self.active_keysets.get(unit);
+    }
+
+    /// caller own result data, so responsible to deallocate
+    pub fn getActiveKeysets(self: *Self, allocator: std.mem.Allocator) !std.AutoHashMap(nuts.CurrencyUnit, nuts.Id) {
+        self.lock.lockShared();
+        defer self.lock.unlockShared();
+        // key and value doesnt have heap data, so we can clone all map
+        return try self.active_keysets.cloneWithAllocator(allocator);
     }
 
     /// keyset inside is cloned, so caller own keyset
@@ -359,7 +429,7 @@ pub const MintMemoryDatabase = struct {
         errdefer states.deinit();
 
         for (ys) |y| {
-            const kv = try self.proof_state.fetchPut(y.serialize(), proof_state);
+            const kv = try self.proof_states.fetchPut(y.serialize(), proof_state);
             states.appendAssumeCapacity(if (kv) |_kv| _kv.value else null);
         }
 
@@ -367,7 +437,7 @@ pub const MintMemoryDatabase = struct {
     }
 
     // caller must free result
-    pub fn getProofsStates(self: *Self, allocator: std.mem.Allocator, ys: []secp256k1.PublicKey) !std.ArrayList(?nuts.nut07.State) {
+    pub fn getProofsStates(self: *Self, allocator: std.mem.Allocator, ys: []const secp256k1.PublicKey) !std.ArrayList(?nuts.nut07.State) {
         self.lock.lockShared();
         defer self.lock.unlockShared();
 
@@ -375,7 +445,7 @@ pub const MintMemoryDatabase = struct {
         errdefer states.deinit();
 
         for (ys) |y| {
-            states.appendAssumeCapacity(self.proof_state.get(y.serialize()));
+            states.appendAssumeCapacity(self.proof_states.get(y.serialize()));
         }
 
         return states;
@@ -508,7 +578,7 @@ pub fn worker(m: *MintMemoryDatabase, unit: nuts.CurrencyUnit) !void {
 }
 
 test MintMemoryDatabase {
-    var db_arened = try MintMemoryDatabase.init(std.testing.allocator);
+    var db_arened = try MintMemoryDatabase.initManaged(std.testing.allocator);
     defer db_arened.deinit();
     var db = &db_arened.value;
     var rnd = std.Random.DefaultPrng.init(std.testing.random_seed);
@@ -563,7 +633,7 @@ test MintMemoryDatabase {
 }
 
 test "multithread" {
-    var shared_data = try MintMemoryDatabase.init(std.testing.allocator);
+    var shared_data = try MintMemoryDatabase.initManaged(std.testing.allocator);
     defer shared_data.deinit();
 
     const thread1 = try std.Thread.spawn(.{

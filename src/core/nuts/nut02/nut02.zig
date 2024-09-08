@@ -61,7 +61,6 @@ pub const Id = struct {
     }
 
     pub fn jsonStringify(self: *const Id, out: anytype) !void {
-        // TODO use version
         try out.write(std.fmt.bytesToHex(self.toBytes(), .lower));
     }
 
@@ -139,6 +138,10 @@ pub const KeySet = struct {
     unit: CurrencyUnit,
     /// Keyset [`Keys`]
     keys: Keys,
+
+    pub fn deinit(self: *KeySet) void {
+        self.keys.deinit();
+    }
 };
 
 /// KeySetInfo
@@ -163,11 +166,15 @@ pub const MintKeySet = struct {
     /// Keyset [`MintKeys`]
     keys: MintKeys,
 
-    pub fn toKeySet(self: MintKeySet, arena: std.mem.Allocator) !KeySet {
+    pub fn deinit(self: *MintKeySet) void {
+        self.keys.deinit();
+    }
+
+    pub fn toKeySet(self: MintKeySet, allocator: std.mem.Allocator) !KeySet {
         return .{
             .id = self.id,
             .unit = self.unit,
-            .keys = try Keys.fromMintKeys(arena, self.keys),
+            .keys = try Keys.fromMintKeys(allocator, self.keys),
         };
     }
 
