@@ -3,6 +3,7 @@ const constants = @import("constants.zig");
 const bech32 = @import("bitcoin").bech32;
 const secp256k1 = @import("secp256k1");
 const errors = @import("error.zig");
+const Ripemd160 = @import("bitcoin").hashes.Ripemd160;
 
 /// Construct the invoice's HRP and signatureless data into a preimage to be hashed.
 pub fn constructInvoicePreimage(allocator: std.mem.Allocator, hrp_bytes: []const u8, data_without_signature: []const u5) !std.ArrayList(u8) {
@@ -88,7 +89,7 @@ pub const Bolt11Invoice = struct {
     }
 
     /// Returns the hash to which we will receive the preimage on completion of the payment
-    pub fn paymentHash(self: @This()) Sha256 {
+    pub fn paymentHash(self: @This()) Sha256Hash {
         return self.signed_invoice.raw_invoice.getKnownTag(.payment_hash) orelse @panic("expected payment_hash");
     }
 };
@@ -543,7 +544,71 @@ pub const RawTaggedField = union(enum) {
     }
 };
 
-pub const Sha256 = [std.crypto.hash.sha2.Sha256.digest_length]u8;
+pub const Sha256Hash = struct {
+    inner: [std.crypto.hash.sha2.Sha256.digest_length]u8,
+
+    fn fromBase32(allocator: std.mem.Allocator, field_data: []const u5) !Sha256Hash {
+        // "A reader MUST skip over […] a n […] field that does not have data_length 53 […]."
+        if (field_data.len != 52) return errors.Bolt11ParseError.Skip;
+
+        // TODO rewrite on bounded array ,start from bech32
+        const data_bytes = try bech32.arrayListFromBase32(allocator, field_data);
+        defer data_bytes.deinit();
+
+        var res: Sha256Hash = undefined;
+
+        std.crypto.hash.sha2.Sha256.hash(data_bytes.items, &res.inner, .{});
+
+        return res;
+    }
+};
+
+pub const PayeePubKey = struct {
+    inner: secp256k1.PublicKey,
+
+    fn fromBase32(allocator: std.mem.Allocator, field_data: []const u5) !PayeePubKey {
+        // "A reader MUST skip over […] a n […] field that does not have data_length 53 […]."
+        if (field_data.len != 53) return errors.Bolt11ParseError.Skip;
+
+        // TODO rewrite on bounded array ,start from bech32
+        const data_bytes = try bech32.arrayListFromBase32(allocator, field_data);
+        defer data_bytes.deinit();
+
+        const pub_key = try secp256k1.PublicKey.fromSlice(data_bytes.items);
+        return .{
+            .inner = pub_key,
+        };
+    }
+};
+
+pub const Uint64 = struct {
+    inner: u64,
+
+    fn fromBase32(field_data: []const u5) !Uint64 {
+        const val = parseUintBe(u64, field_data) orelse return errors.Bolt11ParseError.IntegerOverflowError;
+
+        return .{
+            .inner = val,
+        };
+    }
+};
+
+pub const PaymentSecret = struct {
+    inner: [32]u8,
+
+    fn fromBase32(allocator: std.mem.Allocator, field_data: []const u5) !PaymentSecret {
+        // "A reader MUST skip over […] a n […] field that does not have data_length 53 […]."
+        if (field_data.len != 52) return errors.Bolt11ParseError.Skip;
+
+        // TODO rewrite on bounded array ,start from bech32
+        const data_bytes = try bech32.arrayListFromBase32(allocator, field_data);
+        defer data_bytes.deinit();
+
+        return .{
+            .inner = data_bytes.items[0..32].*,
+        };
+    }
+};
 
 /// Tagged field with known tag
 ///
@@ -552,23 +617,25 @@ pub const Sha256 = [std.crypto.hash.sha2.Sha256.digest_length]u8;
 /// This is not exported to bindings users as we don't yet support enum variants with the same name the struct contained
 /// in the variant.
 pub const TaggedField = union(enum) {
-    payment_hash: Sha256,
+    payment_hash: Sha256Hash,
     description: std.ArrayList(u8),
-    // payee_pub_key: core.secp256k1.PublicKey,
-    // description_hash: Sha256,
-    // expiry_time: u64,
+    payee_pub_key: PayeePubKey,
+    description_hash: Sha256Hash,
+    expiry_time: Uint64,
 
-    // min_final_cltv_expiry_delta: u64,
-    // fallback: Fallback,
+    min_final_cltv_expiry_delta: Uint64,
+    fallback: Fallback,
 
     // PrivateRoute(PrivateRoute),
-    // PaymentSecret(PaymentSecret),
-    // PaymentMetadata(Vec<u8>),
+    payment_secret: PaymentSecret,
+    payment_metadata: std.ArrayList(u8),
     // Features(Bolt11InvoiceFeatures),
 
     pub fn deinit(self: TaggedField) void {
         switch (self) {
             .description => |v| v.deinit(),
+            .payment_metadata => |v| v.deinit(),
+
             else => {},
         }
     }
@@ -580,21 +647,8 @@ pub const TaggedField = union(enum) {
         const field_data = field[3..];
 
         return switch (@as(u8, tag)) {
-            constants.TAG_PAYMENT_HASH => v: {
-                if (field_data.len != 52) {
-                    // "A reader MUST skip over […] a p, [or] h […] field that does not have data_length 52 […]."
-
-                    return errors.Bolt11ParseError.Skip;
-                } else {
-                    const d = try bech32.arrayListFromBase32(allocator, field_data);
-                    defer d.deinit();
-
-                    var hasher = std.crypto.hash.sha2.Sha256.init(.{});
-
-                    hasher.update(d.items);
-
-                    break :v TaggedField{ .payment_hash = hasher.finalResult() };
-                }
+            constants.TAG_PAYMENT_HASH => .{
+                .payment_hash = try Sha256Hash.fromBase32(allocator, field_data),
             },
             constants.TAG_DESCRIPTION => v: {
                 const bytes = try bech32.arrayListFromBase32(allocator, field_data);
@@ -604,10 +658,34 @@ pub const TaggedField = union(enum) {
 
                 break :v TaggedField{ .description = bytes };
             },
+            constants.TAG_PAYEE_PUB_KEY => .{
+                .payee_pub_key = try PayeePubKey.fromBase32(allocator, field_data),
+            },
+            constants.TAG_DESCRIPTION_HASH => .{
+                .description_hash = try Sha256Hash.fromBase32(allocator, field_data),
+            },
+            constants.TAG_EXPIRY_TIME => .{
+                .expiry_time = try Uint64.fromBase32(field_data),
+            },
+            constants.TAG_MIN_FINAL_CLTV_EXPIRY_DELTA => .{
+                .min_final_cltv_expiry_delta = try Uint64.fromBase32(field_data),
+            },
+            constants.TAG_FALLBACK => .{
+                .fallback = try Fallback.fromBase32(allocator, field_data),
+            },
+            constants.TAG_PAYMENT_SECRET => .{
+                .payment_secret = try PaymentSecret.fromBase32(allocator, field_data),
+            },
+            constants.TAG_PAYMENT_METADATA => .{
+                .payment_metadata = try bech32.arrayListFromBase32(allocator, field_data),
+            },
+
             else => return error.Skip,
         };
     }
 };
+
+const Sha256 = std.crypto.hash.sha2.Sha256;
 
 /// Fallback address in case no LN payment is possible
 pub const Fallback = union(enum) {
@@ -616,9 +694,63 @@ pub const Fallback = union(enum) {
     pub_key_hash: [20]u8,
     // ripemd160 hash
     script_hash: [20]u8,
+
+    fn fromBase32(allocator: std.mem.Allocator, field_data: []const u5) !Fallback {
+        if (field_data.len == 0) return errors.Bolt11ParseError.UnexpectedEndOfTaggedFields;
+
+        const version: u8 = (field_data[0]);
+
+        var data_bytes = try bech32.arrayListFromBase32(allocator, field_data);
+        defer data_bytes.deinit();
+
+        switch (version) {
+            0...16 => {
+                if (data_bytes.items.len < 2 or data_bytes.items.len > 40) {
+                    return errors.Bolt11ParseError.InvalidSegWitProgramLength;
+                }
+
+                // const version = WitnessVersion::try_from(version).expect("0 through 16 are valid SegWit versions");
+                return .{
+                    .program = try data_bytes.toOwnedSlice(),
+                };
+            },
+            17 => {
+                //hash160
+                var hasher = Sha256.init(.{});
+                hasher.update(data_bytes.items);
+
+                var rhasher = Ripemd160.init(.{});
+                rhasher.update(&hasher.finalResult());
+
+                var out: [20]u8 = undefined;
+                rhasher.final(&out);
+
+                return .{
+                    .pub_key_hash = out,
+                };
+            },
+            18 => {
+                //hash160
+                var hasher = Sha256.init(.{});
+                hasher.update(data_bytes.items);
+
+                var rhasher = Ripemd160.init(.{});
+                rhasher.update(&hasher.finalResult());
+
+                var out: [20]u8 = undefined;
+                rhasher.final(&out);
+
+                return .{
+                    .script_hash = out,
+                };
+            },
+            else => return errors.Bolt11ParseError.Skip,
+        }
+    }
 };
 
 test "decode" {
+    // test_raw_signed_invoice_deserialization from rust lightning invoice
     const str = "lnbc1pvjluezpp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqdpl2pkx2ctnv5sxxmmwwd5kgetjypeh2ursdae8g6twvus8g6rfwvs8qun0dfjkxaq8rkx3yf5tcsyz3d73gafnh3cax9rn449d9p5uxz9ezhhypd0elx87sjle52x86fux2ypatgddc6k63n7erqz25le42c4u4ecky03ylcqca784w";
 
     const v = try SignedRawBolt11Invoice.fromStr(std.testing.allocator, str);
@@ -635,7 +767,7 @@ test "decode" {
 
     hasher.update(try std.fmt.hexToBytes(&buf, "0001020304050607080900010203040506070809000102030405060708090102"));
 
-    try std.testing.expectEqual(hasher.finalResult(), v.raw_invoice.getKnownTag(.payment_hash));
+    try std.testing.expectEqual(hasher.finalResult(), v.raw_invoice.getKnownTag(.payment_hash).?.inner);
 
     try std.testing.expectEqualSlices(u8, "Please consider supporting this project", v.raw_invoice.getKnownTag(.description).?.items);
 
