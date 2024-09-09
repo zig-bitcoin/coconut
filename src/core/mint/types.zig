@@ -4,6 +4,7 @@ const amount_lib = @import("../lib.zig").amount;
 const CurrencyUnit = @import("../lib.zig").nuts.CurrencyUnit;
 const MintQuoteState = @import("../lib.zig").nuts.nut04.QuoteState;
 const MeltQuoteState = @import("../lib.zig").nuts.nut05.QuoteState;
+const secp256k1 = @import("secp256k1");
 const zul = @import("zul");
 
 /// Mint Quote Info
@@ -154,5 +155,38 @@ pub const MeltQuote = struct {
         }
 
         return cloned;
+    }
+};
+
+pub const ProofInfo = struct {
+    /// Proof
+    proof: nuts.Proof,
+    /// y
+    y: secp256k1.PublicKey,
+    /// Mint Url
+    mint_url: []u8,
+    /// Proof State
+    state: nuts.nut07.State,
+    /// Proof Spending Conditions
+    spending_condition: ?nuts.nut11.SpendingConditions,
+    /// Unit
+    unit: nuts.CurrencyUnit,
+
+    /// Create new [`ProofInfo`]
+    pub fn init(
+        proof: nuts.Proof,
+        mint_url: []u8,
+        state: nuts.nut07.State,
+        unit: nuts.CurrencyUnit,
+    ) ProofInfo {
+        const secret = nuts.nut10.Secret.fromSecret(proof.secret);
+        return .{
+            .proof = proof,
+            .y = proof.c,
+            .mint_url = mint_url,
+            .state = state,
+            .spending_conditions = nuts.nut10.toSpendingConditions(secret) catch null,
+            .unit = unit,
+        };
     }
 };
