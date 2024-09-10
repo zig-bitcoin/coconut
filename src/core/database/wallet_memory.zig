@@ -6,6 +6,8 @@ const MeltQuote = @import("../mint/types.zig").MeltQuote; // TODO import from wa
 const ProofInfo = @import("../mint/types.zig").ProofInfo;
 const secp256k1 = @import("secp256k1");
 
+/// TODO rw locks
+/// Wallet Memory Database
 pub const WalletMemoryDatabase = struct {
     const Self = @This();
 
@@ -14,8 +16,8 @@ pub const WalletMemoryDatabase = struct {
     keysets: std.AutoHashMap(nuts.Id, nuts.KeySetInfo),
     mint_quotes: std.AutoHashMap([]u8, MintQuote),
     melt_quotes: std.AutoHashMap([]u8, MeltQuote),
-    // mint_keys: std.AutoHashMap(nuts.Id, nuts.nut01.Keys),
-    // proofs: std.AutoHashMap(secp256k1.PublicKey, ProofInfo),
+    mint_keys: std.AutoHashMap(nuts.Id, nuts.nut01.Keys),
+    proofs: std.AutoHashMap(secp256k1.PublicKey, ProofInfo),
     keyset_counter: std.AutoHashMap(nuts.Id, u32),
     nostr_last_checked: std.AutoHashMap(secp256k1.PublicKey, u32),
 
@@ -25,7 +27,7 @@ pub const WalletMemoryDatabase = struct {
         allocator: std.mem.Allocator,
         mint_quotes: []const MintQuote,
         melt_quotes: []const MeltQuote,
-        // mint_keys: []const nuts.nut01.Keys,
+        mint_keys: []const nuts.nut01.Keys,
         keyset_counter: std.AutoHashMap(nuts.Id, u32),
         nostr_last_checked: std.AutoHashMap(secp256k1.PublicKey, u32),
     ) !WalletMemoryDatabase {
@@ -35,11 +37,19 @@ pub const WalletMemoryDatabase = struct {
         for (mint_quotes) |q| {
             try _mint_quotes.put(q.id, q);
         }
+
         var _melt_quotes = std.AutoHashMap([16]u8, MeltQuote).init(allocator);
         errdefer _melt_quotes.deinit();
 
         for (melt_quotes) |q| {
             try _melt_quotes.put(q.id, q);
+        }
+
+        var _mint_keys = std.AutoHashMap(nuts.Id, nuts.nut01.Keys);
+        errdefer _mint_keys.deinit();
+
+        for (mint_keys) |k| {
+            try _mint_keys.put(nuts.Id.fromKeys(k), k);
         }
 
         var mints = std.AutoHashMap([]const u8, ?MintInfo).init(allocator);
@@ -51,8 +61,8 @@ pub const WalletMemoryDatabase = struct {
         var mint_keysets = std.AutoHashMap([]const u8, nuts.Id).init(allocator);
         errdefer mint_keysets.deinit();
 
-        // var proofs = std.AutoHashMap(secp256k1.PublicKey, ProofInfo).init(allocator);
-        // errdefer proofs.deinit();
+        var proofs = std.AutoHashMap(secp256k1.PublicKey, ProofInfo).init(allocator);
+        errdefer proofs.deinit();
 
         return .{
             .allocator = allocator,
@@ -61,8 +71,8 @@ pub const WalletMemoryDatabase = struct {
             .keysets = keysets,
             .mint_quotes = _mint_quotes,
             .melt_quotes = _melt_quotes,
-            // .mint_keys = mint_keys,
-            // .proofs = proofs,
+            .mint_keys = mint_keys,
+            .proofs = proofs,
             .keyset_counter = keyset_counter,
             .nostr_last_checked = nostr_last_checked,
         };
