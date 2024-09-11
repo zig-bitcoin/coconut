@@ -2,15 +2,16 @@
 //!
 //! <https://github.com/cashubtc/nuts/blob/main/11.md>
 const std = @import("std");
+const bitcoin_primitives = @import("bitcoin-primitives");
+const secp256k1 = bitcoin_primitives.secp256k1;
+const helper = @import("../../../helper/helper.zig");
+const zul = @import("zul");
 
 const BlindedMessage = @import("../nut00/nut00.zig").BlindedMessage;
 const Proof = @import("../nut00/nut00.zig").Proof;
-const secp256k1 = @import("secp256k1");
 const Witness = @import("../nut00/nut00.zig").Witness;
 const Nut10Secret = @import("../nut10/nut10.zig").Secret;
 const Id = @import("../nut02/nut02.zig").Id;
-const helper = @import("../../../helper/helper.zig");
-const zul = @import("zul");
 
 /// P2Pk Witness
 pub const P2PKWitness = struct {
@@ -353,9 +354,9 @@ pub const SigFlag = enum {
 };
 
 /// Returns count of valid signatures
-pub fn validSignatures(msg: []const u8, pubkeys: []const secp256k1.PublicKey, signatures: []const secp256k1.Signature) !u64 {
+pub fn validSignatures(msg: []const u8, pubkeys: []const secp256k1.PublicKey, signatures: []const secp256k1.schnorr.Signature) !u64 {
     var count: usize = 0;
-    var secp = try secp256k1.Secp256k1.genNew();
+    var secp = secp256k1.Secp256k1.genNew();
     defer secp.deinit();
 
     for (pubkeys) |pubkey| {
@@ -376,7 +377,7 @@ pub fn signP2PKByProof(self: *Proof, allocator: std.mem.Allocator, secret_key: s
     const signature = try secret_key.sign(msg);
 
     if (self.witness) |*witness| {
-        try witness.addSignatures(allocator, &.{&signature.toString()});
+        try witness.addSignatures(allocator, &.{&signature.toStr()});
     } else {
         var p2pk_witness = Witness{ .p2pk_witness = .{
             .signatures = std.ArrayList(std.ArrayList(u8)).init(allocator),
@@ -408,12 +409,12 @@ pub fn verifyP2pkProof(self: *Proof, allocator: std.mem.Allocator) !void {
 
     if (secret.value.kind == .p2pk) try pubkeys.append(try secp256k1.PublicKey.fromString(secret.value.secret_data.data));
 
-    var secp = try secp256k1.Secp256k1.genNew();
+    var secp = secp256k1.Secp256k1.genNew();
     defer secp.deinit();
 
     for (witness_signatures.items) |signature| {
         for (pubkeys.items) |v| {
-            const sig = try secp256k1.Signature.fromString(signature.items);
+            const sig = try secp256k1.schnorr.Signature.fromStr(signature.items);
 
             if (v.verify(&secp, msg, sig)) {
                 valid_sigs += 1;
@@ -436,7 +437,7 @@ pub fn verifyP2pkProof(self: *Proof, allocator: std.mem.Allocator) !void {
             if (locktime < @as(u64, @intCast(std.time.timestamp()))) {
                 for (witness_signatures.items) |s| {
                     for (refund_keys.items) |v| {
-                        const sig = secp256k1.Signature.fromString(s.items) catch return error.InvalidSignature;
+                        const sig = secp256k1.schnorr.Signature.fromStr(s.items) catch return error.InvalidSignature;
                         // As long as there is one valid refund signature it can be spent
 
                         if (v.verify(&secp, msg, sig)) {
@@ -473,7 +474,7 @@ pub fn signP2pkBlindedMessage(self: *BlindedMessage, allocator: std.mem.Allocato
 pub fn verifyP2pkBlindedMessages(self: *const BlindedMessage, pubkeys: []const secp256k1.PublicKey, required_sigs: u64) !void {
     var valid_sigs: usize = 0;
 
-    var secp = try secp256k1.Secp256k1.genNew();
+    var secp = secp256k1.Secp256k1.genNew();
     defer secp.deinit();
 
     if (self.witness) |witness| {
@@ -481,7 +482,7 @@ pub fn verifyP2pkBlindedMessages(self: *const BlindedMessage, pubkeys: []const s
             for (signatures.items) |signature| {
                 for (pubkeys) |v| {
                     const msg = self.blinded_secret.serialize();
-                    const sig = try secp256k1.Signature.fromString(signature.items);
+                    const sig = try secp256k1.schnorr.Signature.fromStr(signature.items);
 
                     if (v.verify(&secp, &msg, sig)) {
                         valid_sigs += 1;
@@ -566,7 +567,7 @@ test "test_secret_ser" {
 }
 
 test "sign_proof" {
-    var secp = try secp256k1.Secp256k1.genNew();
+    var secp = secp256k1.Secp256k1.genNew();
     defer secp.deinit();
 
     const secret_key = try secp256k1.SecretKey.fromString("99590802251e78ee1051648439eedb003dc539093a48a44e7b8f2642c909ea37");

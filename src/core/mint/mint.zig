@@ -1,8 +1,9 @@
 const std = @import("std");
 const core = @import("../lib.zig");
-const secp256k1 = @import("secp256k1");
-const bitcoin = @import("bitcoin");
-const bip32 = bitcoin.bitcoin.bip32;
+const bitcoin_primitives = @import("bitcoin-primitives");
+
+const secp256k1 = bitcoin_primitives.secp256k1;
+const bip32 = bitcoin_primitives.bips.bip32;
 const helper = @import("../../helper/helper.zig");
 const nuts = core.nuts;
 
@@ -83,6 +84,16 @@ pub const Mint = struct {
     // using for allocating data belongs to mint
     allocator: std.mem.Allocator,
 
+    pub fn deinit(self: *Mint) void {
+        var it = self.keysets.value.iterator();
+
+        while (it.next()) |entry| {
+            entry.value_ptr.deinit();
+        }
+
+        self.keysets.value.deinit();
+    }
+
     /// Create new [`Mint`]
     pub fn init(
         allocator: std.mem.Allocator,
@@ -93,13 +104,17 @@ pub const Mint = struct {
         // Hashmap where the key is the unit and value is (input fee ppk, max_order)
         supported_units: std.AutoHashMap(core.nuts.CurrencyUnit, std.meta.Tuple(&.{ u64, u8 })),
     ) !Mint {
-        const secp_ctx = try secp256k1.Secp256k1.genNew();
+        const secp_ctx = secp256k1.Secp256k1.genNew();
         errdefer secp_ctx.deinit();
 
         const xpriv = try bip32.ExtendedPrivKey.initMaster(.MAINNET, seed);
 
         var active_keysets = std.AutoHashMap(core.nuts.Id, MintKeySet).init(allocator);
-        errdefer active_keysets.deinit();
+        errdefer {
+            var it = active_keysets.valueIterator();
+            while (it.next()) |v| v.deinit();
+            active_keysets.deinit();
+        }
 
         const keyset_infos = try localstore.getKeysetInfos(allocator);
         defer keyset_infos.deinit();
@@ -237,7 +252,8 @@ pub const Mint = struct {
                 const id = keyset_info.id;
                 _ = try localstore.addKeysetInfo(keyset_info);
                 try localstore.setActiveKeyset(unit, id);
-                try active_keysets.put(id, keyset);
+                var old = try active_keysets.fetchPut(id, keyset) orelse continue;
+                old.value.deinit();
             }
         }
 
@@ -338,7 +354,7 @@ pub const Mint = struct {
 
         var result = try std.ArrayList(core.nuts.KeySet).initCapacity(allocator, it.len);
         errdefer {
-            for (result.items) |*ks| ks.deinit();
+            for (result.items) |*ks| ks.deinit(allocator);
             result.deinit();
         }
 
@@ -556,7 +572,7 @@ const expectEqual = std.testing.expectEqual;
 test "mint mod generate keyset from seed" {
     const seed = "test_seed";
 
-    var secp = try secp256k1.Secp256k1.genNew();
+    var secp = secp256k1.Secp256k1.genNew();
     defer secp.deinit();
 
     var keyset = try MintKeySet.generateFromSeed(
@@ -579,7 +595,7 @@ test "mint mod generate keyset from seed" {
 test "mint mod generate keyset from xpriv" {
     const seed = "test_seed";
 
-    var secp = try secp256k1.Secp256k1.genNew();
+    var secp = secp256k1.Secp256k1.genNew();
     defer secp.deinit();
 
     const xpriv = try bip32.ExtendedPrivKey.initMaster(.MAINNET, seed);

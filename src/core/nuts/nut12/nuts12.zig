@@ -2,8 +2,10 @@
 //!
 //! <https://github.com/cashubtc/nuts/blob/main/12.md>
 const std = @import("std");
-const secp256k1 = @import("secp256k1");
+const bitcoin_primitives = @import("bitcoin-primitives");
+const secp256k1 = bitcoin_primitives.secp256k1;
 const dhke = @import("../../dhke.zig");
+
 const Proof = @import("../nut00/nut00.zig").Proof;
 const BlindSignature = @import("../nut00/nut00.zig").BlindSignature;
 const Id = @import("../nut02/nut02.zig").Id;
@@ -47,7 +49,7 @@ fn verifyDleq(
     const e_bytes: [32]u8 = _e.data;
     const e: secp256k1.Scalar = secp256k1.Scalar.fromSecretKey(_e);
 
-    var secp = try secp256k1.Secp256k1.genNew();
+    var secp = secp256k1.Secp256k1.genNew();
     defer secp.deinit();
 
     // a = e*A
@@ -188,7 +190,7 @@ test "test_blind_signature_dleq" {
     const blinded = try std.json.parseFromSlice(BlindSignature, std.testing.allocator, blinded_sig, .{});
     defer blinded.deinit();
 
-    var secp = try secp256k1.Secp256k1.genNew();
+    var secp = secp256k1.Secp256k1.genNew();
     defer secp.deinit();
 
     const secret_key =
@@ -215,7 +217,7 @@ test "test_proof_dleq" {
     const a = try secp256k1.PublicKey.fromString(
         "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
     );
-    const secp = try secp256k1.Secp256k1.genNew();
+    const secp = secp256k1.Secp256k1.genNew();
     defer secp.deinit();
 
     try verifyDleqByProof(&proof.value, secp, a);

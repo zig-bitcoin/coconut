@@ -43,13 +43,9 @@
             .url = "https://github.com/ultd/base58-zig/archive/e1001fbe8b41eed36d81e37931ada66b784e51dc.zip",
             .hash = "12206e5050a03cd9dcb896781de0cf541081488006532675371653f61d00c1f27433",
         },
-        .secp256k1 = .{
-            .url = "https://github.com/zig-bitcoin/libsecp256k1-zig/archive/5f70bc5aa2a5ebc69c78a9a75fb83c2d7035bde1.zip",
-            .hash = "12208e2a2f181feabb9fa01db64232e9cdefdf1b8f2919f1dd7f24c2393cad2b947b",
-        },
-        .@"bitcoin-zig" = .{
-            .url = "git+https://github.com/zig-bitcoin/bitcoin-zig#f3af13008b088796697fc656e26d8c2ddf73dc18",
-            .hash = "1220d90650e0907125bc6035e3e10e10c088e9eb4de958b343a3cce5d7209ee5bbd4",
+        .@"bitcoin-primitives" = .{
+            .url = "git+https://github.com/zig-bitcoin/bitcoin-primitives#b51ffa5b67e376a102bde0250e4235bc66e32c2e",
+            .hash = "1220ae99270542861a0f2cc5d9b0b2df2f11c6bd2ce431c9067c5c958cd36f66c948",
         },
     },
     .paths = .{

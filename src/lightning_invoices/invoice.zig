@@ -1,9 +1,211 @@
 const std = @import("std");
 const constants = @import("constants.zig");
-const bech32 = @import("bitcoin").bech32;
-const secp256k1 = @import("secp256k1");
+const bitcoin_primitives = @import("bitcoin-primitives");
+const bip32 = bitcoin_primitives.bips.bip32;
+const secp256k1 = bitcoin_primitives.secp256k1;
+const bech32 = bitcoin_primitives.bech32;
 const errors = @import("error.zig");
-const Ripemd160 = @import("bitcoin").hashes.Ripemd160;
+const ser = @import("ser.zig");
+
+const Ripemd160 = bitcoin_primitives.hashes.Ripemd160;
+const Features = @import("features.zig");
+const RecoverableSignature = secp256k1.ecdsa.RecoverableSignature;
+const Message = secp256k1.Message;
+const Writer = ser.Writer;
+
+pub const InvoiceBuilder = struct {
+    currency: Currency,
+    amount: ?u64,
+    si_prefix: ?SiPrefix,
+    timestamp: ?u64,
+    tagged_fields: std.ArrayList(TaggedField),
+
+    /// exactly one [`TaggedField.description`] or [`TaggedField.description_hash`]
+    description_flag: bool = false,
+
+    /// exactly one [`TaggedField.payment_hash`]
+    hash_flag: bool = false,
+
+    ///  the timestamp is set
+    timestamp_flag: bool = false,
+
+    ///  the CLTV expiry is set
+    cltv_flag: bool = false,
+
+    ///  the payment secret is set
+    secret_flag: bool = false,
+
+    ///  payment metadata is set
+    payment_metadata_flag: bool = false,
+
+    /// Construct new, empty `InvoiceBuilder`. All necessary fields have to be filled first before
+    /// `InvoiceBuilder.build(self)` becomes available.
+    pub fn init(allocator: std.mem.Allocator, currency: Currency) !InvoiceBuilder {
+        return .{
+            .currency = currency,
+            .amount = null,
+            .si_prefix = null,
+            .timestamp = null,
+            .tagged_fields = try std.ArrayList(TaggedField).initCapacity(allocator, 8),
+        };
+    }
+
+    /// Builds a [`RawBolt11Invoice`] if no [`CreationError`] occurred while construction any of the
+    /// fields.
+    pub fn buildRaw(self: *const InvoiceBuilder, gpa: std.mem.Allocator) !RawBolt11Invoice {
+        const hrp = RawHrp{
+            .currency = self.currency,
+            .raw_amount = self.amount,
+            .si_prefix = self.si_prefix,
+        };
+
+        const timestamp = self.timestamp orelse @panic("expected timestamp");
+
+        var tagged_fields = try std.ArrayList(RawTaggedField).initCapacity(gpa, self.tagged_fields.items.len);
+        errdefer tagged_fields.deinit();
+
+        // we moving ownership of TaggedField
+        for (self.tagged_fields.items) |tf| {
+            tagged_fields.appendAssumeCapacity(.{ .known = tf });
+        }
+
+        const data = RawDataPart{
+            .timestamp = timestamp,
+            .tagged_fields = tagged_fields,
+        };
+
+        return .{
+            .hrp = hrp,
+            .data = data,
+        };
+    }
+
+    /// Builds and signs an invoice using the supplied `sign_function`. This function MAY fail with
+    /// an error of type `E` and MUST produce a recoverable signature valid for the given hash and
+    /// if applicable also for the included payee public key.
+    pub fn tryBuildSigned(self: *const InvoiceBuilder, gpa: std.mem.Allocator, sign_function: *const fn (Message) anyerror!RecoverableSignature) !Bolt11Invoice {
+        var raw = try self.buildRaw(gpa);
+        errdefer raw.deinit();
+
+        const invoice = Bolt11Invoice{
+            .signed_invoice = try raw.sign(gpa, sign_function),
+        };
+
+        // TODO
+        //invoice.check_field_counts().expect("should be ensured by type signature of builder");
+        // invoice.check_feature_bits().expect("should be ensured by type signature of builder");
+        // invoice.check_amount().expect("should be ensured by type signature of builder");
+
+        return invoice;
+    }
+
+    /// Set the description. This function is only available if no description (hash) was set.
+    /// copy description
+    pub fn setDescription(self: *InvoiceBuilder, allocator: std.mem.Allocator, description: []const u8) !void {
+        if (self.description_flag) return error.DescriptionAlreadySet;
+        const _description = try allocator.dupe(u8, description);
+        errdefer allocator.free(_description);
+
+        self.description_flag = true;
+
+        self.tagged_fields.appendAssumeCapacity(.{
+            .description = .{
+                .inner = std.ArrayList(u8).fromOwnedSlice(allocator, _description),
+            },
+        });
+    }
+
+    /// Set the description hash. This function is only available if no description (hash) was set.
+    pub fn setDescriptionHash(self: *InvoiceBuilder, description_hash: [Sha256.digest_length]u8) !void {
+        if (self.description_flag) return error.DescriptionAlreadySet;
+        self.description_flag = true;
+
+        self.tagged_fields.appendAssumeCapacity(.{
+            .description_hash = .{
+                .inner = description_hash,
+            },
+        });
+    }
+
+    /// Set the payment hash. This function is only available if no payment hash was set.
+    pub fn setPaymentHash(self: *InvoiceBuilder, hash: [Sha256.digest_length]u8) !void {
+        if (self.hash_flag) return error.PaymentHashAlreadySet;
+
+        self.hash_flag = true;
+
+        self.tagged_fields.appendAssumeCapacity(.{
+            .payment_hash = .{
+                .inner = hash,
+            },
+        });
+    }
+
+    /// Sets the timestamp to a specific .
+    pub fn setTimestamp(self: *InvoiceBuilder, time: u64) !void {
+        if (self.timestamp_flag) return error.TimestampAlreadySet;
+
+        self.timestamp_flag = true;
+
+        self.timestamp = time;
+    }
+    /// Sets the timestamp to a specific .
+    pub fn setCurrentTimestamp(self: *InvoiceBuilder) !void {
+        if (self.timestamp_flag) return error.TimestampAlreadySet;
+
+        self.timestamp_flag = true;
+
+        self.timestamp = @intCast(std.time.timestamp());
+    }
+
+    /// Sets `min_final_cltv_expiry_delta`.
+    pub fn setMinFinalCltvExpiryDelta(self: *InvoiceBuilder, delta: u64) !void {
+        if (self.cltv_flag) return error.CltvExpiryAlreadySet;
+
+        self.tagged_fields.appendAssumeCapacity(.{ .min_final_cltv_expiry_delta = .{ .inner = delta } });
+    }
+
+    /// Sets the payment secret and relevant features.
+    pub fn setPaymentSecret(self: *InvoiceBuilder, gpa: std.mem.Allocator, payment_secret: PaymentSecret) !void {
+        self.secret_flag = true;
+
+        var found_features = false;
+        for (self.tagged_fields.items) |*f| {
+            switch (f.*) {
+                .features => |*field| {
+                    found_features = true;
+                    try field.set(Features.tlv_onion_payload_required);
+                    try field.set(Features.payment_addr_required);
+                },
+                else => continue,
+            }
+        }
+
+        self.tagged_fields.appendAssumeCapacity(.{ .payment_secret = payment_secret });
+
+        if (!found_features) {
+            var features = Features{
+                .flags = std.AutoHashMap(Features.FeatureBit, void).init(gpa),
+            };
+
+            try features.set(Features.tlv_onion_payload_required);
+            try features.set(Features.payment_addr_required);
+
+            self.tagged_fields.appendAssumeCapacity(.{ .features = features });
+        }
+    }
+
+    /// Sets the amount in millisatoshis. The optimal SI prefix is chosen automatically.
+    pub fn setAmountMilliSatoshis(self: *InvoiceBuilder, amount_msat: u64) !void {
+        const amount = std.math.mul(u64, amount_msat, 10) catch return error.InvalidAmount;
+
+        const biggest_possible_si_prefix = for (SiPrefix.valuesDesc()) |prefix| {
+            if (amount % prefix.multiplier() == 0) break prefix;
+        } else @panic("Pico should always match");
+
+        self.amount = amount / biggest_possible_si_prefix.multiplier();
+        self.si_prefix = biggest_possible_si_prefix;
+    }
+};
 
 /// Construct the invoice's HRP and signatureless data into a preimage to be hashed.
 pub fn constructInvoicePreimage(allocator: std.mem.Allocator, hrp_bytes: []const u8, data_without_signature: []const u5) !std.ArrayList(u8) {
@@ -48,7 +250,7 @@ pub fn constructInvoicePreimage(allocator: std.mem.Allocator, hrp_bytes: []const
 pub const Bolt11Invoice = struct {
     signed_invoice: SignedRawBolt11Invoice,
 
-    pub fn deinit(self: @This()) void {
+    pub fn deinit(self: *@This()) void {
         self.signed_invoice.deinit();
     }
 
@@ -100,14 +302,44 @@ pub const Bolt11Invoice = struct {
 ///
 /// For methods without docs see the corresponding methods in [`Bolt11Invoice`].
 pub const RawBolt11Invoice = struct {
+    const Self = @This();
     /// human readable part
     hrp: RawHrp,
 
     /// data part
     data: RawDataPart,
 
-    pub fn deinit(self: RawBolt11Invoice) void {
+    pub fn deinit(self: *RawBolt11Invoice) void {
         self.data.deinit();
+    }
+
+    /// Calculate the hash of the encoded `RawBolt11Invoice` which should be signed.
+    pub fn signableHash(self: *const Self, gpa: std.mem.Allocator) ![32]u8 {
+        const hrp_bytes = try self.hrp.toStr(gpa);
+        defer gpa.free(hrp_bytes);
+
+        const data_without_sign = try self.data.toBase32(gpa);
+        defer gpa.free(data_without_sign);
+
+        return try RawBolt11Invoice.hashFromParts(gpa, hrp_bytes, data_without_sign);
+    }
+
+    /// Signs the invoice using the supplied `sign_method`. This function MAY fail with an error of
+    /// type `E`. Since the signature of a [`SignedRawBolt11Invoice`] is not required to be valid there
+    /// are no constraints regarding the validity of the produced signature.
+    ///
+    /// This is not exported to bindings users as we don't currently support passing function pointers into methods
+    /// explicitly.
+    pub fn sign(self: *const Self, gpa: std.mem.Allocator, sign_method: *const fn (Message) anyerror!RecoverableSignature) !SignedRawBolt11Invoice {
+        const raw_hash = try self.signableHash(gpa);
+        const hash = Message.fromDigest(raw_hash);
+        const signature = try sign_method(hash);
+
+        return .{
+            .raw_invoice = self.*,
+            .hash = raw_hash,
+            .signature = .{ .value = signature },
+        };
     }
 
     /// Hash the HRP as bytes and signatureless data part.
@@ -151,7 +383,7 @@ pub const RawBolt11Invoice = struct {
 };
 
 pub const Bolt11InvoiceSignature = struct {
-    value: secp256k1.RecoverableSignature,
+    value: secp256k1.ecdsa.RecoverableSignature,
 
     pub fn fromBase32(allocator: std.mem.Allocator, sig: []const u5) !Bolt11InvoiceSignature {
         if (sig.len != 104) return errors.Bolt11ParseError.InvalidSliceLength;
@@ -160,9 +392,18 @@ pub const Bolt11InvoiceSignature = struct {
         defer recoverable_signature_bytes.deinit();
 
         const signature = recoverable_signature_bytes.items[0..64];
-        const recovery_id = try secp256k1.RecoveryId.fromI32(recoverable_signature_bytes.items[64]);
+        const recovery_id = try secp256k1.ecdsa.RecoveryId.fromI32(recoverable_signature_bytes.items[64]);
 
-        return .{ .value = try secp256k1.RecoverableSignature.fromCompact(signature, recovery_id) };
+        return .{ .value = try secp256k1.ecdsa.RecoverableSignature.fromCompact(signature, recovery_id) };
+    }
+
+    fn writeBase32(self: *const Bolt11InvoiceSignature, writer: *Writer) !void {
+        var converter = ser.BytesToBase32.init(writer);
+        const recovery_id, const signature = self.value.serializeCompact();
+
+        try converter.append(&signature);
+        try converter.appendU8(@intCast(recovery_id.toI32()));
+        try converter.finalize();
     }
 };
 
@@ -187,8 +428,34 @@ pub const SignedRawBolt11Invoice = struct {
     /// signature of the payment request
     signature: Bolt11InvoiceSignature,
 
-    pub fn deinit(self: @This()) void {
+    pub fn deinit(self: *@This()) void {
         self.raw_invoice.deinit();
+    }
+    /// Converting [`SignedRawBolt11Invoice`] to string, caller own result
+    /// and responsible to dealloc
+    pub fn toStrAlloc(self: *const SignedRawBolt11Invoice, gpa: std.mem.Allocator) ![]u8 {
+        const hrp_bytes = try self.raw_invoice.hrp.toStr(gpa);
+        defer gpa.free(hrp_bytes);
+
+        var data = v: {
+            var data = std.ArrayList(u5).init(gpa);
+            errdefer data.deinit();
+
+            var writer = Writer.init(&data);
+            // write raw invoice data
+            try self.raw_invoice.data.writeBase32(&writer);
+
+            // write signature
+            try self.signature.writeBase32(&writer);
+
+            break :v data;
+        };
+        defer data.deinit();
+
+        var result = try bech32.encode(gpa, hrp_bytes, data.items, .bech32);
+        errdefer result.deinit();
+
+        return try result.toOwnedSlice();
     }
 
     pub fn fromStr(allocator: std.mem.Allocator, s: []const u8) !SignedRawBolt11Invoice {
@@ -332,6 +599,16 @@ pub const Currency = enum {
 
         return convert.get(currency_prefix) orelse errors.Bolt11ParseError.UnknownCurrency;
     }
+
+    pub fn toStr(self: Currency) []const u8 {
+        return switch (self) {
+            .bitcoin => "bc",
+            .bitcoin_testnet => "tb",
+            .regtest => "bcrt",
+            .simnet => "sb",
+            .signet => "tbs",
+        };
+    }
 };
 
 /// SI prefixes for the human readable part
@@ -375,6 +652,15 @@ pub const SiPrefix = enum {
             else => errors.Bolt11ParseError.UnknownSiPrefix,
         };
     }
+
+    pub fn toStr(self: SiPrefix) u8 {
+        return switch (self) {
+            .milli => 'm',
+            .micro => 'u',
+            .nano => 'n',
+            .pico => 'p',
+        };
+    }
 };
 
 /// Data of the [`RawBolt11Invoice`] that is encoded in the human readable part.
@@ -389,6 +675,26 @@ pub const RawHrp = struct {
 
     /// SI prefix that gets multiplied with the `raw_amount`
     si_prefix: ?SiPrefix,
+
+    /// Converting RawHrp to string, caller own result and responsible to dealloc
+    pub fn toStr(self: *const RawHrp, gpa: std.mem.Allocator) ![]u8 {
+        var result = std.ArrayList(u8).init(gpa);
+        errdefer result.deinit();
+
+        try result.appendSlice("ln");
+
+        // writing currency
+        try result.appendSlice(self.currency.toStr());
+
+        if (self.raw_amount) |amount| {
+            try std.fmt.format(result.writer(), "{d}", .{amount});
+        }
+
+        if (self.si_prefix) |si| {
+            try result.append(si.toStr());
+        }
+        return try result.toOwnedSlice();
+    }
 
     pub fn fromStr(hrp: []const u8) !RawHrp {
         const parts = try StateMachine.parseHrp(hrp);
@@ -437,6 +743,10 @@ pub const DEFAULT_EXPIRY_TIME: u64 = 3600;
 /// [`MIN_FINAL_CLTV_EXPIRY_DELTA`]: lightning::ln::channelmanager::MIN_FINAL_CLTV_EXPIRY_DELTA
 pub const DEFAULT_MIN_FINAL_CLTV_EXPIRY_DELTA: u64 = 18;
 
+pub fn writeU64Base32(v: u64, writer: *const Writer, comptime target_len: usize) !void {
+    try ser.tryStretchWriter(writer, (ser.encodeIntBeBase32(v) catch @panic("Can't be longer target_len")).constSlice(), target_len);
+}
+
 /// Data of the [`RawBolt11Invoice`] that is encoded in the data part
 pub const RawDataPart = struct {
     /// generation time of the invoice
@@ -445,10 +755,33 @@ pub const RawDataPart = struct {
     /// tagged fields of the payment request
     tagged_fields: std.ArrayList(RawTaggedField),
 
-    pub fn deinit(self: RawDataPart) void {
-        for (self.tagged_fields.items) |f| f.deinit();
+    pub fn deinit(self: *RawDataPart) void {
+        for (self.tagged_fields.items) |*f| f.deinit();
 
         self.tagged_fields.deinit();
+    }
+
+    fn writeBase32(self: *const RawDataPart, writer: *const Writer) !void {
+        // encode timestamp
+        try writeU64Base32(self.timestamp, writer, 7);
+
+        // encode tagged fields
+        for (self.tagged_fields.items) |tagged_field| {
+            try tagged_field.writeBase32(writer);
+        }
+
+        return;
+    }
+
+    /// caller own result, so responsible to deallocate
+    fn toBase32(self: RawDataPart, gpa: std.mem.Allocator) ![]u5 {
+        var r = std.ArrayList(u5).init(gpa);
+        errdefer r.deinit();
+
+        const writer = Writer.init(&r);
+
+        try self.writeBase32(&writer);
+        return try r.toOwnedSlice();
     }
 
     fn fromBase32(allocator: std.mem.Allocator, data: []const u5) !RawDataPart {
@@ -507,9 +840,10 @@ fn parseTaggedParts(allocator: std.mem.Allocator, _data: []const u5) !std.ArrayL
         // Set data slice to remaining data
         data = data[last_element..];
 
-        if (TaggedField.fromBase32(allocator, field)) |f| {
-            errdefer f.deinit();
-            try parts.append(.{ .known = f });
+        if (TaggedField.fromBase32(allocator, field)) |*f| {
+            errdefer @constCast(f).deinit();
+
+            try parts.append(.{ .known = f.* });
         } else |err| switch (err) {
             error.Skip => {
                 var un = try std.ArrayList(u5).initCapacity(allocator, field.len);
@@ -536,16 +870,76 @@ pub const RawTaggedField = union(enum) {
     /// tagged field which was not parsed due to an unknown tag or undefined field semantics
     unknown: std.ArrayList(u5),
 
-    pub fn deinit(self: RawTaggedField) void {
-        switch (self) {
+    pub fn deinit(self: *RawTaggedField) void {
+        switch (self.*) {
             .unknown => |a| a.deinit(),
-            .known => |t| t.deinit(),
+            .known => |*t| t.deinit(),
+        }
+    }
+
+    pub fn writeBase32(self: *const RawTaggedField, writer: *const Writer) !void {
+        switch (self.*) {
+            .known => |f| {
+                try f.writeBase32(writer);
+            },
+            .unknown => |f| {
+                try writer.write(f.items);
+            },
         }
     }
 };
 
+fn calculateBase32Len(size: usize) usize {
+    const bits = size * 8;
+
+    return if (bits % 5 == 0)
+        bits / 5
+    else
+        bits / 5 + 1;
+}
+
+fn writeSliceBase32(self: []const u8, writer: *const Writer) !void {
+    // Amount of bits left over from last round, stored in buffer.
+    var buffer_bits: u32 = 0;
+    // Holds all unwritten bits left over from last round. The bits are stored beginning from
+    // the most significant bit. E.g. if buffer_bits=3, then the byte with bits a, b and c will
+    // look as follows: [a, b, c, 0, 0, 0, 0, 0]
+    var buffer: u8 = 0;
+
+    for (self) |b| {
+        // Write first u5 if we have to write two u5s this round. That only happens if the
+        // buffer holds too many bits, so we don't have to combine buffer bits with new bits
+        // from this rounds byte.
+        if (buffer_bits >= 5) {
+            try writer.writeOne(@truncate((buffer & 0b1111_1000) >> 3));
+            buffer <<= 5;
+            buffer_bits -= 5;
+        }
+
+        // Combine all bits from buffer with enough bits from this rounds byte so that they fill
+        // a u5. Save reamining bits from byte to buffer.
+        const from_buffer = buffer >> 3;
+        const from_byte = std.math.shr(u8, b, 3 + buffer_bits); // buffer_bits <= 4
+
+        try writer.writeOne(@truncate(from_buffer | from_byte));
+        buffer = std.math.shl(u8, b, 5 - buffer_bits);
+        buffer_bits += 3;
+    }
+
+    // There can be at most two u5s left in the buffer after processing all bytes, write them.
+    if (buffer_bits >= 5) {
+        try writer.writeOne(@truncate((buffer & 0b1111_1000) >> 3));
+        buffer <<= 5;
+        buffer_bits -= 5;
+    }
+
+    if (buffer_bits != 0) {
+        try writer.writeOne(@truncate(buffer >> 3));
+    }
+}
+
 pub const Sha256Hash = struct {
-    inner: [std.crypto.hash.sha2.Sha256.digest_length]u8,
+    inner: [Sha256.digest_length]u8,
 
     fn fromBase32(allocator: std.mem.Allocator, field_data: []const u5) !Sha256Hash {
         // "A reader MUST skip over […] a n […] field that does not have data_length 53 […]."
@@ -555,11 +949,17 @@ pub const Sha256Hash = struct {
         const data_bytes = try bech32.arrayListFromBase32(allocator, field_data);
         defer data_bytes.deinit();
 
-        var res: Sha256Hash = undefined;
+        return .{
+            .inner = data_bytes.items[0..Sha256.digest_length].*,
+        };
+    }
 
-        std.crypto.hash.sha2.Sha256.hash(data_bytes.items, &res.inner, .{});
+    fn base32Len(_: *const Sha256Hash) usize {
+        return comptime calculateBase32Len(std.crypto.hash.sha2.Sha256.digest_length);
+    }
 
-        return res;
+    fn writeBase32(self: *const Sha256Hash, w: *const Writer) !void {
+        try writeSliceBase32(&self.inner, w);
     }
 };
 
@@ -575,9 +975,18 @@ pub const PayeePubKey = struct {
         defer data_bytes.deinit();
 
         const pub_key = try secp256k1.PublicKey.fromSlice(data_bytes.items);
+
         return .{
             .inner = pub_key,
         };
+    }
+
+    fn writeBase32(self: *const PayeePubKey, writer: *const Writer) !void {
+        try writeSliceBase32(&self.inner.serialize(), writer);
+    }
+
+    fn base32Len(_: *const PayeePubKey) usize {
+        return comptime calculateBase32Len(secp256k1.constants.public_key_size);
     }
 };
 
@@ -590,6 +999,16 @@ pub const Uint64 = struct {
         return .{
             .inner = val,
         };
+    }
+
+    fn writeBase32(self: Uint64, writer: *const Writer) !void {
+        const encoded = try ser.encodeIntBeBase32(self.inner);
+
+        try writer.write(encoded.constSlice());
+    }
+
+    fn base32Len(self: Uint64) usize {
+        return ser.encodedIntBeBase32Size(self.inner);
     }
 };
 
@@ -608,6 +1027,30 @@ pub const PaymentSecret = struct {
             .inner = data_bytes.items[0..32].*,
         };
     }
+
+    fn writeBase32(self: *const PaymentSecret, writer: *const Writer) !void {
+        try writeSliceBase32(&self.inner, writer);
+    }
+
+    fn base32Len(_: *const PaymentSecret) usize {
+        return calculateBase32Len(32);
+    }
+};
+
+pub const Description = struct {
+    inner: std.ArrayList(u8),
+
+    pub fn deinit(self: Description) void {
+        self.inner.deinit();
+    }
+
+    pub fn base32Len(self: Description) usize {
+        return calculateBase32Len(self.inner.items.len);
+    }
+
+    pub fn writeBase32(self: Description, writer: *const Writer) !void {
+        try writeSliceBase32(self.inner.items, writer);
+    }
 };
 
 /// Tagged field with known tag
@@ -618,23 +1061,127 @@ pub const PaymentSecret = struct {
 /// in the variant.
 pub const TaggedField = union(enum) {
     payment_hash: Sha256Hash,
-    description: std.ArrayList(u8),
+    description: Description,
     payee_pub_key: PayeePubKey,
     description_hash: Sha256Hash,
     expiry_time: Uint64,
-
     min_final_cltv_expiry_delta: Uint64,
     fallback: Fallback,
 
     // PrivateRoute(PrivateRoute),
     payment_secret: PaymentSecret,
     payment_metadata: std.ArrayList(u8),
-    // Features(Bolt11InvoiceFeatures),
+    features: Features,
 
-    pub fn deinit(self: TaggedField) void {
-        switch (self) {
+    pub fn deinit(self: *TaggedField) void {
+        switch (self.*) {
             .description => |v| v.deinit(),
             .payment_metadata => |v| v.deinit(),
+            .features => |*v| v.deinit(),
+
+            else => {},
+        }
+    }
+
+    pub fn format(
+        self: TaggedField,
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        _ = fmt;
+        _ = options;
+
+        switch (self) {
+            .payment_hash => |hash| {
+                try writer.print(".payment_hash = ({any})", .{std.fmt.fmtSliceHexLower(&hash.inner)});
+            },
+            .description => |ds| {
+                try writer.print(".description = ({s})", .{ds.inner.items});
+            },
+            .payee_pub_key => |ppk| {
+                try writer.print(".ppk = ({s})", .{ppk.inner.toString()});
+            },
+            .description_hash => |hash| {
+                try writer.print(".description_hash = ({any})", .{std.fmt.fmtSliceHexLower(&hash.inner)});
+            },
+            // TODO other
+            else => |f| {
+                try writer.print("{any}", .{std.meta.activeTag(f)});
+            },
+        }
+    }
+
+    /// Writes a tagged field: tag, length and data. `tag` should be in `0..32` otherwise the
+    /// function will panic.
+    fn writeBase32(self: *const TaggedField, writer: *const Writer) !void {
+        const write_tagged_field = (struct {
+            fn write(w: *const Writer, tag: u8, payload: anytype) !void {
+                switch (@TypeOf(payload)) {
+                    []const u8, []u8 => {
+                        // Every tagged field data can be at most 1023 bytes long.
+                        std.debug.assert(payload.len < 1024);
+
+                        try w.writeOne(@truncate(tag));
+
+                        try ser.tryStretchWriter(
+                            w,
+                            (try ser.encodeIntBeBase32(calculateBase32Len(payload.len))).constSlice(),
+                            2,
+                        );
+
+                        try writeSliceBase32(payload, w);
+                    },
+                    else => {
+                        const len = payload.base32Len();
+
+                        // Every tagged field data can be at most 1023 bytes long.
+                        std.debug.assert(len < 1024);
+
+                        try w.writeOne(@truncate(tag));
+
+                        try ser.tryStretchWriter(
+                            w,
+                            (try ser.encodeIntBeBase32(len)).constSlice(),
+                            2,
+                        );
+
+                        try payload.writeBase32(w);
+                    },
+                }
+            }
+        }).write;
+
+        switch (self.*) {
+            .payment_hash => |hash| {
+                try write_tagged_field(writer, constants.TAG_PAYMENT_HASH, hash);
+            },
+            .description => |ds| {
+                try write_tagged_field(writer, constants.TAG_DESCRIPTION, ds);
+            },
+            .payee_pub_key => |ppk| {
+                try write_tagged_field(writer, constants.TAG_PAYEE_PUB_KEY, ppk);
+            },
+            .description_hash => |hash| {
+                try write_tagged_field(writer, constants.TAG_DESCRIPTION_HASH, hash);
+            },
+            .expiry_time => |et| {
+                try write_tagged_field(writer, constants.TAG_EXPIRY_TIME, et);
+            },
+            .min_final_cltv_expiry_delta => |cltv| {
+                try write_tagged_field(writer, constants.TAG_MIN_FINAL_CLTV_EXPIRY_DELTA, cltv);
+            },
+            .fallback => |fb| {
+                try write_tagged_field(writer, constants.TAG_FALLBACK, fb);
+            },
+            .payment_secret => |ps| {
+                try write_tagged_field(writer, constants.TAG_PAYMENT_SECRET, ps);
+            },
+            .payment_metadata => |pm| {
+                try write_tagged_field(writer, constants.TAG_PAYMENT_METADATA, pm.items);
+            },
+            // TODO implement other
+            // features: Features,
 
             else => {},
         }
@@ -656,7 +1203,11 @@ pub const TaggedField = union(enum) {
 
                 if (bytes.items.len > 639) return error.DescriptionDecodeError;
 
-                break :v TaggedField{ .description = bytes };
+                break :v TaggedField{
+                    .description = .{
+                        .inner = bytes,
+                    },
+                };
             },
             constants.TAG_PAYEE_PUB_KEY => .{
                 .payee_pub_key = try PayeePubKey.fromBase32(allocator, field_data),
@@ -679,7 +1230,9 @@ pub const TaggedField = union(enum) {
             constants.TAG_PAYMENT_METADATA => .{
                 .payment_metadata = try bech32.arrayListFromBase32(allocator, field_data),
             },
-
+            constants.TAG_FEATURES => .{
+                .features = try Features.fromBase32(allocator, field_data),
+            },
             else => return error.Skip,
         };
     }
@@ -687,20 +1240,69 @@ pub const TaggedField = union(enum) {
 
 const Sha256 = std.crypto.hash.sha2.Sha256;
 
+// TODO when bitcoin-primitives got impl of witness_version, move to it
+pub const WitnessVersion = enum(u8) {
+    /// Initial version of witness program. Used for P2WPKH and P2WPK outputs
+    v0 = 0,
+    /// Version of witness program used for Taproot P2TR outputs.
+    v1 = 1,
+    /// Future (unsupported) version of witness program.
+    v2 = 2,
+    /// Future (unsupported) version of witness program.
+    v3 = 3,
+    /// Future (unsupported) version of witness program.
+    v4 = 4,
+    /// Future (unsupported) version of witness program.
+    v5 = 5,
+    /// Future (unsupported) version of witness program.
+    v6 = 6,
+    /// Future (unsupported) version of witness program.
+    v7 = 7,
+    /// Future (unsupported) version of witness program.
+    v8 = 8,
+    /// Future (unsupported) version of witness program.
+    v9 = 9,
+    /// Future (unsupported) version of witness program.
+    v10 = 10,
+    /// Future (unsupported) version of witness program.
+    v11 = 11,
+    /// Future (unsupported) version of witness program.
+    v12 = 12,
+    /// Future (unsupported) version of witness program.
+    v13 = 13,
+    /// Future (unsupported) version of witness program.
+    v14 = 14,
+    /// Future (unsupported) version of witness program.
+    v15 = 15,
+    /// Future (unsupported) version of witness program.
+    v16 = 16,
+};
+
 /// Fallback address in case no LN payment is possible
 pub const Fallback = union(enum) {
-    program: []const u8,
+    // SegWitProgram
+    program: struct {
+        version: WitnessVersion,
+        program: []const u8,
+    },
     // ripemd160 hash
     pub_key_hash: [20]u8,
     // ripemd160 hash
     script_hash: [20]u8,
 
+    pub fn deinit(self: *const Fallback, gpa: std.mem.Allocator) void {
+        switch (self.*) {
+            inline .program => |p| gpa.free(p.program),
+            else => {},
+        }
+    }
+
     fn fromBase32(allocator: std.mem.Allocator, field_data: []const u5) !Fallback {
         if (field_data.len == 0) return errors.Bolt11ParseError.UnexpectedEndOfTaggedFields;
 
-        const version: u8 = (field_data[0]);
+        const version: u8 = field_data[0];
 
-        var data_bytes = try bech32.arrayListFromBase32(allocator, field_data);
+        var data_bytes = try bech32.arrayListFromBase32(allocator, field_data[1..]);
         defer data_bytes.deinit();
 
         switch (version) {
@@ -709,43 +1311,50 @@ pub const Fallback = union(enum) {
                     return errors.Bolt11ParseError.InvalidSegWitProgramLength;
                 }
 
-                // const version = WitnessVersion::try_from(version).expect("0 through 16 are valid SegWit versions");
+                const witness_version = try std.meta.intToEnum(WitnessVersion, version);
+
                 return .{
-                    .program = try data_bytes.toOwnedSlice(),
+                    .program = .{ .version = witness_version, .program = try data_bytes.toOwnedSlice() },
                 };
             },
             17 => {
                 //hash160
-                var hasher = Sha256.init(.{});
-                hasher.update(data_bytes.items);
-
-                var rhasher = Ripemd160.init(.{});
-                rhasher.update(&hasher.finalResult());
-
-                var out: [20]u8 = undefined;
-                rhasher.final(&out);
-
                 return .{
-                    .pub_key_hash = out,
+                    .pub_key_hash = data_bytes.items[0..20].*,
                 };
             },
             18 => {
                 //hash160
-                var hasher = Sha256.init(.{});
-                hasher.update(data_bytes.items);
-
-                var rhasher = Ripemd160.init(.{});
-                rhasher.update(&hasher.finalResult());
-
-                var out: [20]u8 = undefined;
-                rhasher.final(&out);
-
                 return .{
-                    .script_hash = out,
+                    .script_hash = data_bytes.items[0..20].*,
                 };
             },
             else => return errors.Bolt11ParseError.Skip,
         }
+    }
+
+    fn writeBase32(self: *const Fallback, writer: *const Writer) !void {
+        switch (self.*) {
+            .program => |p| {
+                try writer.writeOne(@intCast(@intFromEnum(p.version)));
+                try writeSliceBase32(p.program, writer);
+            },
+            .pub_key_hash => |pkh| {
+                try writer.writeOne(17);
+                try writeSliceBase32(&pkh, writer);
+            },
+            .script_hash => |sh| {
+                try writer.writeOne(18);
+                try writeSliceBase32(&sh, writer);
+            },
+        }
+    }
+
+    fn base32Len(self: *const Fallback) usize {
+        return switch (self.*) {
+            .program => |p| calculateBase32Len(p.program.len) + 1,
+            inline .pub_key_hash, .script_hash => 33,
+        };
     }
 };
 
@@ -753,7 +1362,7 @@ test "decode" {
     // test_raw_signed_invoice_deserialization from rust lightning invoice
     const str = "lnbc1pvjluezpp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqdpl2pkx2ctnv5sxxmmwwd5kgetjypeh2ursdae8g6twvus8g6rfwvs8qun0dfjkxaq8rkx3yf5tcsyz3d73gafnh3cax9rn449d9p5uxz9ezhhypd0elx87sjle52x86fux2ypatgddc6k63n7erqz25le42c4u4ecky03ylcqca784w";
 
-    const v = try SignedRawBolt11Invoice.fromStr(std.testing.allocator, str);
+    var v = try SignedRawBolt11Invoice.fromStr(std.testing.allocator, str);
     defer v.deinit();
 
     try std.testing.expectEqual(v.raw_invoice.hrp, RawHrp{ .currency = .bitcoin, .raw_amount = null, .si_prefix = null });
@@ -761,15 +1370,11 @@ test "decode" {
     // checking data
     try std.testing.expectEqual(v.raw_invoice.data.timestamp, 1496314658);
 
-    var hasher = std.crypto.hash.sha2.Sha256.init(.{});
-
     var buf: [100]u8 = undefined;
 
-    hasher.update(try std.fmt.hexToBytes(&buf, "0001020304050607080900010203040506070809000102030405060708090102"));
+    try std.testing.expectEqualSlices(u8, try std.fmt.hexToBytes(&buf, "0001020304050607080900010203040506070809000102030405060708090102"), &v.raw_invoice.getKnownTag(.payment_hash).?.inner);
 
-    try std.testing.expectEqual(hasher.finalResult(), v.raw_invoice.getKnownTag(.payment_hash).?.inner);
-
-    try std.testing.expectEqualSlices(u8, "Please consider supporting this project", v.raw_invoice.getKnownTag(.description).?.items);
+    try std.testing.expectEqualSlices(u8, "Please consider supporting this project", v.raw_invoice.getKnownTag(.description).?.inner.items);
 
     // TODO: add other tags
 
@@ -778,9 +1383,78 @@ test "decode" {
     try std.testing.expectEqual(.{ 0xc3, 0xd4, 0xe8, 0x3f, 0x64, 0x6f, 0xa7, 0x9a, 0x39, 0x3d, 0x75, 0x27, 0x7b, 0x1d, 0x85, 0x8d, 0xb1, 0xd1, 0xf7, 0xab, 0x71, 0x37, 0xdc, 0xb7, 0x83, 0x5d, 0xb2, 0xec, 0xd5, 0x18, 0xe1, 0xc9 }, v.hash);
 
     try std.testing.expectEqual(Bolt11InvoiceSignature{
-        .value = try secp256k1.RecoverableSignature.fromCompact(
+        .value = try secp256k1.ecdsa.RecoverableSignature.fromCompact(
             &.{ 0x38, 0xec, 0x68, 0x91, 0x34, 0x5e, 0x20, 0x41, 0x45, 0xbe, 0x8a, 0x3a, 0x99, 0xde, 0x38, 0xe9, 0x8a, 0x39, 0xd6, 0xa5, 0x69, 0x43, 0x4e, 0x18, 0x45, 0xc8, 0xaf, 0x72, 0x05, 0xaf, 0xcf, 0xcc, 0x7f, 0x42, 0x5f, 0xcd, 0x14, 0x63, 0xe9, 0x3c, 0x32, 0x88, 0x1e, 0xad, 0x0d, 0x6e, 0x35, 0x6d, 0x46, 0x7e, 0xc8, 0xc0, 0x25, 0x53, 0xf9, 0xaa, 0xb1, 0x5e, 0x57, 0x38, 0xb1, 0x1f, 0x12, 0x7f },
-            try secp256k1.RecoveryId.fromI32(0),
+            try secp256k1.ecdsa.RecoveryId.fromI32(0),
         ),
     }, v.signature);
+}
+
+// SERIALIZING TESTS, TODO move to separate file
+test "test currency code" {
+    try std.testing.expectEqualSlices(u8, "bc", Currency.toStr(.bitcoin));
+    try std.testing.expectEqualSlices(u8, "tb", Currency.toStr(.bitcoin_testnet));
+    try std.testing.expectEqualSlices(u8, "bcrt", Currency.toStr(.regtest));
+    try std.testing.expectEqualSlices(u8, "sb", Currency.toStr(.simnet));
+    try std.testing.expectEqualSlices(u8, "tbs", Currency.toStr(.signet));
+}
+
+test "test raw hrp" {
+    const hrp = RawHrp{
+        .currency = .bitcoin,
+        .raw_amount = 100,
+        .si_prefix = .micro,
+    };
+
+    const hrp_bytes = try hrp.toStr(std.testing.allocator);
+    defer std.testing.allocator.free(hrp_bytes);
+
+    try std.testing.expectEqualSlices(u8, "lnbc100u", hrp_bytes);
+}
+
+test "full serialize" {
+    var hasher = Sha256.init(.{});
+
+    hasher.update("blalblablablab");
+
+    // test_raw_signed_invoice_deserialization from rust lightning invoice
+    const str = "lnbc1pvjluezpp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqdpl2pkx2ctnv5sxxmmwwd5kgetjypeh2ursdae8g6twvus8g6rfwvs8qun0dfjkxaq8rkx3yf5tcsyz3d73gafnh3cax9rn449d9p5uxz9ezhhypd0elx87sjle52x86fux2ypatgddc6k63n7erqz25le42c4u4ecky03ylcqca784w";
+
+    var v = try SignedRawBolt11Invoice.fromStr(std.testing.allocator, str);
+    defer v.deinit();
+
+    try v.raw_invoice.data.tagged_fields.append(.{ .known = .{ .payee_pub_key = .{ .inner = .{ .pk = .{ .data = .{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31 } } } } } });
+
+    try v.raw_invoice.data.tagged_fields.append(.{ .known = .{ .description_hash = .{
+        .inner = hasher.finalResult(),
+    } } });
+    try v.raw_invoice.data.tagged_fields.append(.{ .known = .{ .expiry_time = .{ .inner = 123131231 } } });
+    try v.raw_invoice.data.tagged_fields.append(.{ .known = .{ .min_final_cltv_expiry_delta = .{ .inner = 123131231 } } });
+    try v.raw_invoice.data.tagged_fields.append(.{ .known = .{ .fallback = .{ .pub_key_hash = .{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19 } } } });
+
+    // payload metadata
+    {
+        var pm = std.ArrayList(u8).init(std.testing.allocator);
+        errdefer pm.deinit();
+
+        try pm.appendSlice("dfdfakoadsoaskfoaksdofkaoskha");
+
+        try v.raw_invoice.data.tagged_fields.append(.{ .known = .{ .payment_metadata = pm } });
+    }
+
+    try v.raw_invoice.data.tagged_fields.append(.{ .known = .{ .fallback = .{ .pub_key_hash = .{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19 } } } });
+
+    const vv = try v.toStrAlloc(std.testing.allocator);
+    defer std.testing.allocator.free(vv);
+
+    // decode and expect equal
+    {
+        var vvv = try SignedRawBolt11Invoice.fromStr(std.testing.allocator, vv);
+        defer vvv.deinit();
+
+        const double_encoded = try vvv.toStrAlloc(std.testing.allocator);
+        defer std.testing.allocator.free(double_encoded);
+
+        try std.testing.expectEqualSlices(u8, vv, double_encoded);
+    }
 }

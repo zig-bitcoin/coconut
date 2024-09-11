@@ -3,12 +3,14 @@
 //! <https://github.com/cashubtc/nuts/blob/main/02.md>
 
 const std = @import("std");
+const bitcoin_primitives = @import("bitcoin-primitives");
+const bip32 = bitcoin_primitives.bips.bip32;
+const secp256k1 = bitcoin_primitives.secp256k1;
+
 const CurrencyUnit = @import("../nut00/nut00.zig").CurrencyUnit;
 const Keys = @import("../nut01/nut01.zig").Keys;
 const MintKeys = @import("../nut01/nut01.zig").MintKeys;
 const MintKeyPair = @import("../nut01/nut01.zig").MintKeyPair;
-const secp256k1 = @import("secp256k1");
-const bip32 = @import("bitcoin").bitcoin.bip32;
 
 /// Keyset version
 pub const KeySetVersion = enum {
@@ -124,7 +126,7 @@ pub const Id = struct {
 
     pub fn fromMintKeys(allocator: std.mem.Allocator, mkeys: MintKeys) !Id {
         var keys = try Keys.fromMintKeys(allocator, mkeys);
-        defer keys.deinit();
+        defer keys.deinit(allocator);
 
         return try fromKeys(allocator, keys.inner);
     }
@@ -139,8 +141,8 @@ pub const KeySet = struct {
     /// Keyset [`Keys`]
     keys: Keys,
 
-    pub fn deinit(self: *KeySet) void {
-        self.keys.deinit();
+    pub fn deinit(self: *KeySet, gpa: std.mem.Allocator) void {
+        self.keys.deinit(gpa);
     }
 };
 

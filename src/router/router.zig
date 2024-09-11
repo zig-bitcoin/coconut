@@ -4,10 +4,14 @@ const httpz = @import("httpz");
 const std = @import("std");
 const router_handlers = @import("router_handlers.zig");
 const zul = @import("zul");
+const fake_wallet = @import("../fake_wallet/fake_wallet.zig");
 
 const Mint = core.mint.Mint;
 const CurrencyUnit = core.nuts.CurrencyUnit;
 const PaymentMethod = core.nuts.PaymentMethod;
+const FakeWallet = fake_wallet.FakeWallet;
+
+pub const LnBackendsMap = std.HashMap(LnKey, FakeWallet, LnKeyContext, 80);
 
 /// Create mint [`Server`] with required endpoints for cashu mint
 /// Caller responsible for free resources
@@ -15,7 +19,7 @@ pub fn createMintServer(
     allocator: std.mem.Allocator,
     mint_url: []const u8,
     mint: *Mint,
-    // ln: HashMap<LnKey, Arc<dyn MintLightning<Err = cdk_lightning::Error> + Send + Sync>>,
+    ln: LnBackendsMap,
     quote_ttl: u64,
     server_options: httpz.Config,
 ) !httpz.Server(MintState) {
@@ -24,6 +28,7 @@ pub fn createMintServer(
         .mint = mint,
         .mint_url = mint_url,
         .quote_ttl = quote_ttl,
+        .ln = ln,
     };
 
     var srv = try httpz.Server(MintState).init(allocator, server_options, state);
@@ -40,8 +45,27 @@ pub fn createMintServer(
     return srv;
 }
 
+pub const LnKeyContext = struct {
+    pub fn hash(_: @This(), s: LnKey) u64 {
+        var hasher = std.hash.Wyhash.init(0);
+        hasher.update(&.{ @intFromEnum(s.unit), @intFromEnum(s.method) });
+        switch (s.method) {
+            .custom => |c| {
+                hasher.update(c);
+            },
+            else => {},
+        }
+
+        return hasher.final();
+    }
+
+    pub fn eql(_: @This(), a: LnKey, b: LnKey) bool {
+        return std.meta.eql(a, b);
+    }
+};
+
 pub const MintState = struct {
-    // ln: HashMap<LnKey, Arc<dyn MintLightning<Err = cdk_lightning::Error> + Send + Sync>>,
+    ln: LnBackendsMap,
     mint: *Mint,
     mint_url: []const u8,
     quote_ttl: u64,
@@ -53,4 +77,11 @@ pub const LnKey = struct {
     unit: CurrencyUnit,
     /// Method of payment backend
     method: PaymentMethod,
+
+    pub fn init(unit: CurrencyUnit, method: PaymentMethod) LnKey {
+        return .{
+            .unit = unit,
+            .method = method,
+        };
+    }
 };
