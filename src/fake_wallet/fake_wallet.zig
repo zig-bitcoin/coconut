@@ -16,7 +16,7 @@ const MeltQuoteBolt11Request = core.nuts.nut05.MeltQuoteBolt11Request;
 const Settings = core.lightning.Settings;
 const MintMeltSettings = core.lightning.MintMeltSettings;
 const FeeReserve = core.mint.FeeReserve;
-const Channel = @import("channels").Channel;
+const Channel = @import("../channels/channels.zig").Channel;
 const MintQuoteState = core.nuts.nut04.QuoteState;
 
 // TODO:  wait any invoices, here we need create a new listener, that will receive

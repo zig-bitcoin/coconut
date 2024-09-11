@@ -39,10 +39,6 @@
             .url = "https://github.com/karlseguin/pg.zig/archive/1491270ac43c7eba91992bb06b3758254c36e39a.zip",
             .hash = "1220bcc68967188de7ad5d520a4629c0d1e169c111d87e6978a3c128de5ec2b6bdd0",
         },
-        .@"base58-zig" = .{
-            .url = "https://github.com/ultd/base58-zig/archive/e1001fbe8b41eed36d81e37931ada66b784e51dc.zip",
-            .hash = "12206e5050a03cd9dcb896781de0cf541081488006532675371653f61d00c1f27433",
-        },
         .@"bitcoin-primitives" = .{
             .url = "git+https://github.com/zig-bitcoin/bitcoin-primitives#b51ffa5b67e376a102bde0250e4235bc66e32c2e",
             .hash = "1220ae99270542861a0f2cc5d9b0b2df2f11c6bd2ce431c9067c5c958cd36f66c948",
