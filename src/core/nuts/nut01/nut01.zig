@@ -1,5 +1,7 @@
 const std = @import("std");
-const secp256k1 = @import("secp256k1");
+const bitcoin_primitives = @import("bitcoin-primitives");
+const secp256k1 = bitcoin_primitives.secp256k1;
+const helper = @import("../../../helper/helper.zig");
 const KeySet = @import("../nut02/nut02.zig").KeySet;
 
 /// Mint Public Keys [NUT-01]
@@ -93,7 +95,14 @@ pub const Keys = struct {
         try out.endObject();
     }
 
-    pub fn deinit(self: *Keys) void {
+    pub fn deinit(self: *Keys, gpa: std.mem.Allocator) void {
+        var it = self.inner.iterator();
+
+        // free keys
+        while (it.next()) |entry| {
+            gpa.free(entry.key_ptr.*);
+        }
+
         self.inner.deinit();
     }
 
@@ -101,13 +110,14 @@ pub const Keys = struct {
         var res = std.StringHashMap(secp256k1.PublicKey).init(allocator);
         errdefer res.deinit();
 
-        var buf: [20]u8 = undefined;
-
         var it = keys.inner.iterator();
-        while (it.next()) |e| {
-            const sz = std.fmt.formatIntBuf(&buf, e.key_ptr.*, 10, .lower, .{});
 
-            try res.put(buf[0..sz], e.value_ptr.public_key);
+        while (it.next()) |e| {
+            const key = try std.fmt.allocPrint(allocator, "{d}", .{e.key_ptr.*});
+            errdefer allocator.free(key);
+
+            // deallocating if already key exist
+            if (try res.fetchPut(key, e.value_ptr.public_key) != null) allocator.free(key);
         }
 
         return .{ .inner = res };

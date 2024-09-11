@@ -2,12 +2,14 @@
 //!
 //! <https://github.com/cashubtc/nuts/blob/main/14.md>
 const std = @import("std");
+const bitcoin_primitives = @import("bitcoin-primitives");
+const secp256k1 = bitcoin_primitives.secp256k1;
+
 const Witness = @import("../nut00/nut00.zig").Witness;
 const Proof = @import("../nut00/nut00.zig").Proof;
 const Secret = @import("../nut10/nut10.zig").Secret;
 const Conditions = @import("../nut11/nut11.zig").Conditions;
-const secp256k1 = @import("secp256k1");
-const Signature = secp256k1.Signature;
+const Signature = secp256k1.schnorr.Signature;
 
 const validSignatures = @import("../nut11/nut11.zig").validSignatures;
 
@@ -64,7 +66,7 @@ pub fn verifyHTLC(self: *const Proof, allocator: std.mem.Allocator) !void {
                     defer signs_parsed.deinit();
 
                     for (signs.items) |s| {
-                        signs_parsed.appendAssumeCapacity(try Signature.fromString(s.items));
+                        signs_parsed.appendAssumeCapacity(try Signature.fromStr(s.items));
                     }
 
                     // If secret includes refund keys check that there is a valid signature
@@ -83,7 +85,7 @@ pub fn verifyHTLC(self: *const Proof, allocator: std.mem.Allocator) !void {
             defer signatures.deinit();
 
             for (signs.items) |s| {
-                signatures.appendAssumeCapacity(try Signature.fromString(s.items));
+                signatures.appendAssumeCapacity(try Signature.fromStr(s.items));
             }
 
             if (try validSignatures(self.secret.toBytes(), pubkey.items, signatures.items) < req_sigs) return error.IncorrectSecretKind;

@@ -5,9 +5,10 @@
 const std = @import("std");
 const secret_lib = @import("../../secret.zig");
 const helper = @import("../../../helper/helper.zig");
+const secp256k1 = @import("bitcoin-primitives").secp256k1;
+
 const SpendingConditions = @import("../nut11/nut11.zig").SpendingConditions;
 const Conditions = @import("../nut11/nut11.zig").Conditions;
-const secp256k1 = @import("secp256k1");
 
 ///  NUT10 Secret Kind
 pub const Kind = enum {

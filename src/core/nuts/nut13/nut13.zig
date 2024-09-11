@@ -2,20 +2,22 @@
 //!
 //! <https://github.com/cashubtc/nuts/blob/main/13.md>
 
-const secp256k1 = @import("secp256k1");
-const SecretKey = secp256k1.SecretKey;
-const Secret = @import("../../secret.zig").Secret;
-const Id = @import("../nut02/nut02.zig").Id;
 const nut00 = @import("../nut00/nut00.zig");
-const BlindedMessage = nut00.BlindedMessage;
-const PreMint = nut00.PreMint;
-const PreMintSecrets = nut00.PreMintSecrets;
-const bip32 = @import("bitcoin").bitcoin.bip32;
 const std = @import("std");
 const amount_lib = @import("../../amount.zig");
 const dhke = @import("../../dhke.zig");
 const helper = @import("../../../helper/helper.zig");
-const bip39 = @import("bitcoin").bitcoin.bip39;
+const bitcoin_primitives = @import("bitcoin-primitives");
+const bip32 = bitcoin_primitives.bips.bip32;
+const secp256k1 = bitcoin_primitives.secp256k1;
+const bip39 = bitcoin_primitives.bips.bip39;
+
+const SecretKey = secp256k1.SecretKey;
+const Secret = @import("../../secret.zig").Secret;
+const Id = @import("../nut02/nut02.zig").Id;
+const BlindedMessage = nut00.BlindedMessage;
+const PreMint = nut00.PreMint;
+const PreMintSecrets = nut00.PreMintSecrets;
 
 fn derivePathFromKeysetId(id: Id) ![3]bip32.ChildNumber {
     const index: u32 = @intCast(try id.toU64() % ((std.math.powi(u64, 2, 31) catch unreachable) - 1));
@@ -227,7 +229,7 @@ test "test_secret_from_seed" {
         "576c23393a8b31cc8da6688d9c9a96394ec74b40fdaf1f693a6bb84284334ea0",
     };
 
-    var secp = try secp256k1.Secp256k1.genNew();
+    var secp = secp256k1.Secp256k1.genNew();
     defer secp.deinit();
 
     for (0.., test_secrets) |i, test_secret| {
@@ -258,7 +260,7 @@ test "test_r_from_seed" {
         "5f09bfbfe27c439a597719321e061e2e40aad4a36768bb2bcc3de547c9644bf9",
     };
 
-    var secp = try secp256k1.Secp256k1.genNew();
+    var secp = secp256k1.Secp256k1.genNew();
     defer secp.deinit();
 
     for (0.., test_secrets) |i, test_secret| {

@@ -2,7 +2,8 @@ const std = @import("std");
 const nuts = @import("../nuts/lib.zig");
 const dhke = @import("../dhke.zig");
 const zul = @import("zul");
-const secp256k1 = @import("secp256k1");
+const bitcoin_primitives = @import("bitcoin-primitives");
+const secp256k1 = bitcoin_primitives.secp256k1;
 
 const Arened = @import("../../helper/helper.zig").Parsed;
 const MintKeySetInfo = @import("../mint/mint.zig").MintKeySetInfo;

@@ -2,12 +2,15 @@
 //!
 //! <https://github.com/cashubtc/nuts/blob/main/06.md>
 const std = @import("std");
-const PublicKey = @import("secp256k1").PublicKey;
-const MppMethodSettings = @import("../nut15/nut15.zig").MppMethodSettings;
+const bitcoin_primitives = @import("bitcoin-primitives");
+const secp256k1 = bitcoin_primitives.secp256k1;
 const nut05 = @import("../nut05/nut05.zig");
 const nut15 = @import("../nut15/nut15.zig");
 const nut04 = @import("../nut04/nut04.zig");
 const helper = @import("../../../helper/helper.zig");
+
+const PublicKey = secp256k1.PublicKey;
+const MppMethodSettings = @import("../nut15/nut15.zig").MppMethodSettings;
 
 /// Mint Version
 pub const MintVersion = struct {

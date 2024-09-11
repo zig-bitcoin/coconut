@@ -68,12 +68,7 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize,
     }).module("zul");
 
-    const secp256k1 = b.dependency("secp256k1", .{
-        .target = target,
-        .optimize = optimize,
-    });
-
-    const bitcoin_zig = b.dependency("bitcoin-zig", .{
+    const bitcoin_primitives = b.dependency("bitcoin-primitives", .{
         .target = target,
         .optimize = optimize,
     });
@@ -117,10 +112,8 @@ pub fn build(b: *std.Build) !void {
                 .optimize = optimize,
             });
             exe.root_module.addImport("zul", zul);
-            exe.root_module.addImport("secp256k1", secp256k1.module("secp256k1"));
-            exe.root_module.linkLibrary(secp256k1.artifact("libsecp"));
             exe.root_module.addImport("httpz", httpz_module);
-            exe.root_module.addImport("bitcoin", bitcoin_zig.module("bitcoin"));
+            exe.root_module.addImport("bitcoin-primitives", bitcoin_primitives.module("bitcoin-primitives"));
             exe.root_module.addImport("base58", base58_module);
 
             exe.root_module.addImport("channels", channel_m);
@@ -163,10 +156,8 @@ pub fn build(b: *std.Build) !void {
                 .single_threaded = false,
             });
             lib_unit_tests.root_module.addImport("zul", zul);
-            lib_unit_tests.root_module.addImport("secp256k1", secp256k1.module("secp256k1"));
-            lib_unit_tests.root_module.linkLibrary(secp256k1.artifact("libsecp"));
             lib_unit_tests.root_module.addImport("httpz", httpz_module);
-            lib_unit_tests.root_module.addImport("bitcoin", bitcoin_zig.module("bitcoin"));
+            lib_unit_tests.root_module.addImport("bitcoin-primitives", bitcoin_primitives.module("bitcoin-primitives"));
             lib_unit_tests.root_module.addImport("base58", base58_module);
 
             lib_unit_tests.root_module.addImport("channels", channel_m);
@@ -188,11 +179,10 @@ pub fn build(b: *std.Build) !void {
             .optimize = optimize,
         });
         exe.root_module.addImport("httpz", httpz_module);
+        exe.root_module.addImport("channels", channel_m);
         exe.root_module.addImport("zul", zul);
-        exe.root_module.addImport("secp256k1", secp256k1.module("secp256k1"));
-        exe.root_module.linkLibrary(secp256k1.artifact("libsecp"));
         exe.root_module.addImport("pg", pg.module("pg"));
-        exe.root_module.addImport("bitcoin", bitcoin_zig.module("bitcoin"));
+        exe.root_module.addImport("bitcoin-primitives", bitcoin_primitives.module("bitcoin-primitives"));
 
         // Add dependency modules to the executable.
         for (deps) |mod| exe.root_module.addImport(
@@ -249,10 +239,8 @@ pub fn build(b: *std.Build) !void {
         .single_threaded = false,
     });
     lib_unit_tests.root_module.addImport("zul", zul);
-    lib_unit_tests.root_module.addImport("secp256k1", secp256k1.module("secp256k1"));
-    lib_unit_tests.root_module.linkLibrary(secp256k1.artifact("libsecp"));
     lib_unit_tests.root_module.addImport("httpz", httpz_module);
-    lib_unit_tests.root_module.addImport("bitcoin", bitcoin_zig.module("bitcoin"));
+    lib_unit_tests.root_module.addImport("bitcoin-primitives", bitcoin_primitives.module("bitcoin-primitives"));
     lib_unit_tests.root_module.addImport("base58", base58_module);
 
     lib_unit_tests.root_module.addImport("channels", channel_m);
@@ -277,9 +265,7 @@ pub fn build(b: *std.Build) !void {
     );
 
     bench.root_module.addImport("zul", zul);
-    bench.root_module.addImport("secp256k1", secp256k1.module("secp256k1"));
-    bench.root_module.linkLibrary(secp256k1.artifact("libsecp"));
-    bench.root_module.addImport("bitcoin", bitcoin_zig.module("bitcoin"));
+    bench.root_module.addImport("bitcoin-primitives", bitcoin_primitives.module("bitcoin-primitives"));
 
     const run_bench = b.addRunArtifact(bench);
 
