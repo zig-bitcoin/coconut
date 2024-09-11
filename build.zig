@@ -1,10 +1,22 @@
 const std = @import("std");
-const build_helpers = @import("build_helpers.zig");
 const package_name = "coconut";
 const package_path = "src/lib.zig";
+const build_helpers = @import("build_helpers.zig");
 
 // List of external dependencies that this package requires.
 const external_dependencies = [_]build_helpers.Dependency{
+    .{
+        .name = "httpz",
+        .module_name = "httpz",
+    },
+    .{
+        .name = "zul",
+        .module_name = "zul",
+    },
+    .{
+        .name = "bitcoin-primitives",
+        .module_name = "bitcoin-primitives",
+    },
     .{
         .name = "zig-cli",
         .module_name = "zig-cli",
@@ -23,26 +35,18 @@ pub fn build(b: *std.Build) !void {
     // set a preferred release mode, allowing the user to decide how to optimize.
     const optimize = b.standardOptimizeOption(.{});
 
-    // Channel module
-    const channel_m = b.addModule("channels", .{
-        .target = target,
-        .optimize = optimize,
-        .root_source_file = b.path("src/channels/channels.zig"),
-    });
-
     // **************************************************************
     // *            HANDLE DEPENDENCY MODULES                       *
     // **************************************************************
-    const dependencies_opts = .{
-        .target = target,
-        .optimize = optimize,
-    };
 
     // This array can be passed to add the dependencies to lib, executable, tests, etc using `addModule` function.
     const deps = build_helpers.generateModuleDependencies(
         b,
         &external_dependencies,
-        dependencies_opts,
+        .{
+            .optimize = optimize,
+            .target = target,
+        },
     ) catch unreachable;
 
     // **************************************************************
@@ -54,30 +58,6 @@ pub fn build(b: *std.Build) !void {
         .imports = deps,
     });
 
-    // httpz dependency
-    const httpz_module = b.dependency("httpz", .{ .target = target, .optimize = optimize }).module("httpz");
-
-    // postgresql dependency
-    const pg = b.dependency("pg", .{
-        .target = target,
-        .optimize = optimize,
-    });
-
-    const zul = b.dependency("zul", .{
-        .target = target,
-        .optimize = optimize,
-    }).module("zul");
-
-    const bitcoin_primitives = b.dependency("bitcoin-primitives", .{
-        .target = target,
-        .optimize = optimize,
-    });
-
-    const base58_module = b.dependency("base58-zig", .{
-        .target = target,
-        .optimize = optimize,
-    }).module("base58-zig");
-
     // **************************************************************
     // *              COCONUT AS A LIBRARY                        *
     // **************************************************************
@@ -87,11 +67,13 @@ pub fn build(b: *std.Build) !void {
         .target = target,
         .optimize = optimize,
     });
+
     // Add dependency modules to the library.
     for (deps) |mod| lib.root_module.addImport(
         mod.name,
         mod.module,
     );
+
     // This declares intent for the library to be installed into the standard
     // location when the user invokes the "install" step (the default step when
     // running `zig build`).
@@ -111,14 +93,8 @@ pub fn build(b: *std.Build) !void {
                 .target = target,
                 .optimize = optimize,
             });
-            exe.root_module.addImport("zul", zul);
-            exe.root_module.addImport("httpz", httpz_module);
-            exe.root_module.addImport("bitcoin-primitives", bitcoin_primitives.module("bitcoin-primitives"));
-            exe.root_module.addImport("base58", base58_module);
 
-            exe.root_module.addImport("channels", channel_m);
-
-            // Add dependency modules to the executable.
+            // Add dependency modules to the library.
             for (deps) |mod| exe.root_module.addImport(
                 mod.name,
                 mod.module,
@@ -134,11 +110,8 @@ pub fn build(b: *std.Build) !void {
                 .target = target,
                 .optimize = optimize,
             });
-            exe.root_module.addImport("httpz", httpz_module);
-            exe.root_module.addImport("pg", pg.module("pg"));
-            exe.root_module.addImport("zul", zul);
 
-            // Add dependency modules to the executable.
+            // Add dependency modules to the library.
             for (deps) |mod| exe.root_module.addImport(
                 mod.name,
                 mod.module,
@@ -155,12 +128,12 @@ pub fn build(b: *std.Build) !void {
                 .optimize = optimize,
                 .single_threaded = false,
             });
-            lib_unit_tests.root_module.addImport("zul", zul);
-            lib_unit_tests.root_module.addImport("httpz", httpz_module);
-            lib_unit_tests.root_module.addImport("bitcoin-primitives", bitcoin_primitives.module("bitcoin-primitives"));
-            lib_unit_tests.root_module.addImport("base58", base58_module);
 
-            lib_unit_tests.root_module.addImport("channels", channel_m);
+            // Add dependency modules to the library.
+            for (deps) |mod| lib_unit_tests.root_module.addImport(
+                mod.name,
+                mod.module,
+            );
 
             const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);
 
@@ -178,13 +151,8 @@ pub fn build(b: *std.Build) !void {
             .target = target,
             .optimize = optimize,
         });
-        exe.root_module.addImport("httpz", httpz_module);
-        exe.root_module.addImport("channels", channel_m);
-        exe.root_module.addImport("zul", zul);
-        exe.root_module.addImport("pg", pg.module("pg"));
-        exe.root_module.addImport("bitcoin-primitives", bitcoin_primitives.module("bitcoin-primitives"));
 
-        // Add dependency modules to the executable.
+        // Add dependency modules to the library.
         for (deps) |mod| exe.root_module.addImport(
             mod.name,
             mod.module,
@@ -213,7 +181,8 @@ pub fn build(b: *std.Build) !void {
             .target = target,
             .optimize = optimize,
         });
-        // Add dependency modules to the executable.
+
+        // Add dependency modules to the library.
         for (deps) |mod| exe.root_module.addImport(
             mod.name,
             mod.module,
@@ -238,12 +207,12 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize,
         .single_threaded = false,
     });
-    lib_unit_tests.root_module.addImport("zul", zul);
-    lib_unit_tests.root_module.addImport("httpz", httpz_module);
-    lib_unit_tests.root_module.addImport("bitcoin-primitives", bitcoin_primitives.module("bitcoin-primitives"));
-    lib_unit_tests.root_module.addImport("base58", base58_module);
 
-    lib_unit_tests.root_module.addImport("channels", channel_m);
+    // Add dependency modules to the library.
+    for (deps) |mod| lib_unit_tests.root_module.addImport(
+        mod.name,
+        mod.module,
+    );
 
     const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);
 
@@ -258,14 +227,11 @@ pub fn build(b: *std.Build) !void {
         .optimize = .ReleaseFast,
     });
 
-    // Add dependency modules to the executable.
+    // Add dependency modules to the library.
     for (deps) |mod| bench.root_module.addImport(
         mod.name,
         mod.module,
     );
-
-    bench.root_module.addImport("zul", zul);
-    bench.root_module.addImport("bitcoin-primitives", bitcoin_primitives.module("bitcoin-primitives"));
 
     const run_bench = b.addRunArtifact(bench);
 
