@@ -1,7 +1,8 @@
 const std = @import("std");
 
 const dhke = @import("core/dhke.zig");
-const secp256k1 = @import("secp256k1");
+const secp256k1 = @import("bitcoin-primitives").secp256k1;
+
 const Scalar = secp256k1.Scalar;
 const PublicKey = secp256k1.PublicKey;
 const SecretKey = secp256k1.SecretKey;
@@ -104,7 +105,7 @@ fn end2End(ctx: Context, _: std.mem.Allocator, _: *std.time.Timer) !void {
 fn benchmarkZul() !void {
     const a_bytes: [32]u8 = [_]u8{1} ** 32;
     const r_bytes: [32]u8 = [_]u8{1} ** 32;
-    const secp = try secp256k1.Secp256k1.genNew();
+    const secp = secp256k1.Secp256k1.genNew();
     defer secp.deinit();
 
     const ctx = Context{
