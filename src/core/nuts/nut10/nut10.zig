@@ -5,6 +5,9 @@
 const std = @import("std");
 const secret_lib = @import("../../secret.zig");
 const helper = @import("../../../helper/helper.zig");
+const SpendingConditions = @import("../nut11/nut11.zig").SpendingConditions;
+const Conditions = @import("../nut11/nut11.zig").Conditions;
+const secp256k1 = @import("secp256k1");
 
 ///  NUT10 Secret Kind
 pub const Kind = enum {
@@ -33,7 +36,7 @@ pub const Kind = enum {
     }
 };
 
-/// Secert Date
+/// Secret Data
 pub const SecretData = struct {
     /// Unique random string
     nonce: []const u8,
@@ -131,6 +134,52 @@ pub const Secret = struct {
         return secret_lib.Secret{
             .inner = try output.toOwnedSlice(),
         };
+    }
+
+    pub fn toSpendingConditions(self: Secret, allocator: std.mem.Allocator) !SpendingConditions {
+        switch (self.kind) {
+            .p2pk => {
+                if (self.secret_data.data.len != 33) {
+                    return error.InvalidPublicKeyLength;
+                }
+                const pubkey = try secp256k1.PublicKey.fromSlice(self.secret_data.data);
+
+                // Parse optional conditions from `tags`
+                const conditions = if (self.secret_data.tags) |tags|
+                    try Conditions.fromTags(tags, allocator)
+                else
+                    null;
+
+                // Return the p2pk SpendingCondition
+                return SpendingConditions{
+                    .p2pk = .{
+                        .data = pubkey,
+                        .conditions = conditions,
+                    },
+                };
+            },
+            .htlc => {
+                if (self.secret_data.data.len != 32) {
+                    return error.InvalidHashLength;
+                }
+                var hash: [32]u8 = undefined;
+                @memcpy(&hash, self.secret_data.data);
+
+                // Parse optional conditions from `tags`
+                const conditions = if (self.secret_data.tags) |tags|
+                    try Conditions.fromTags(tags, allocator)
+                else
+                    null;
+
+                // Return the htlc SpendingCondition
+                return SpendingConditions{
+                    .htlc = .{
+                        .data = hash,
+                        .conditions = conditions,
+                    },
+                };
+            },
+        }
     }
 
     pub fn jsonParse(allocator: std.mem.Allocator, source: anytype, options: std.json.ParseOptions) !Secret {
