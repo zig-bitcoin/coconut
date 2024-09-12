@@ -38,3 +38,11 @@ pub fn postCheck(
 
     return error.ExpectedBody;
 }
+
+pub fn getMintInfo(
+    state: MintState,
+    _: *httpz.Request,
+    res: *httpz.Response,
+) !void {
+    return try res.json(state.mint.mint_info, .{});
+}
