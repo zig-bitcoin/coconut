@@ -12,7 +12,7 @@ const Features = @import("features.zig");
 const RecoverableSignature = secp256k1.ecdsa.RecoverableSignature;
 const Message = secp256k1.Message;
 const Writer = ser.Writer;
-const InvoiceBuilder = @import("builder.zig");
+pub const InvoiceBuilder = @import("builder.zig");
 
 /// Construct the invoice's HRP and signatureless data into a preimage to be hashed.
 pub fn constructInvoicePreimage(allocator: std.mem.Allocator, hrp_bytes: []const u8, data_without_signature: []const u5) !std.ArrayList(u8) {
@@ -69,6 +69,12 @@ pub const Bolt11Invoice = struct {
         return Bolt11Invoice.fromSigned(signed);
     }
 
+    pub fn jsonParse(allocator: std.mem.Allocator, source: anytype, options: std.json.ParseOptions) !@This() {
+        const str = try std.json.innerParse([]const u8, allocator, source, options);
+
+        return Bolt11Invoice.fromStr(allocator, str) catch return error.UnexpectedToken;
+    }
+
     pub fn fromSigned(signed_invoice: SignedRawBolt11Invoice) !Self {
         const invoice = Bolt11Invoice{ .signed_invoice = signed_invoice };
 
@@ -120,6 +126,12 @@ pub const Bolt11Invoice = struct {
         return v: {
             break :v (self.signed_invoice.raw_invoice.getKnownTag(.expiry_time) orelse break :v default_expiry_time).inner;
         };
+    }
+
+    /// Returns the Duration since the Unix epoch at which the invoice expires.
+    /// Returning None if overflow occurred.
+    pub fn expiresAtSecs(self: *const Self) ?u64 {
+        return std.math.add(u64, self.secondsSinceEpoch(), self.expiryTime()) catch null;
     }
 };
 

@@ -52,6 +52,8 @@ pub fn createMintServer(
     router.post("/v1/checkstate", router_handlers.postCheck, .{});
     router.get("/v1/info", router_handlers.getMintInfo, .{});
 
+    router.post("/v1/mint/quote/bolt11", router_handlers.getMintBolt11Quote, .{});
+    router.post("/v1/melt/quote/bolt11", router_handlers.getMeltBolt11Quote, .{});
     return srv;
 }
 

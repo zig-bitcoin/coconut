@@ -288,14 +288,23 @@ pub const Mint = struct {
     ) !MintQuote {
         const nut04 = self.mint_info.nuts.nut04;
         if (nut04.disabled) return error.MintingDisabled;
+        // TODO return check
 
-        if (nut04.getSettings(unit, .bolt11)) |settings| {
-            if (settings.max_amount) |max_amount| if (amount > max_amount) return error.MintOverLimit;
+        // if (nut04.getSettings(unit, .bolt11)) |settings| {
+        //     if (settings.max_amount) |max_amount| if (amount > max_amount) return error.MintOverLimit;
 
-            if (settings.min_amount) |min_amount| if (amount < min_amount) return error.MintUnderLimit;
-        } else return error.UnsupportedUnit;
+        //     if (settings.min_amount) |min_amount| if (amount < min_amount) return error.MintUnderLimit;
+        // } else return error.UnsupportedUnit;
 
-        const quote = try MintQuote.initAlloc(allocator, mint_url, request, unit, amount, expiry, ln_lookup);
+        const quote = try MintQuote.initAlloc(
+            allocator,
+            mint_url,
+            request,
+            unit,
+            amount,
+            expiry,
+            ln_lookup,
+        );
         errdefer quote.deinit(allocator);
 
         std.log.debug("New mint quote: {any}", .{quote});
@@ -304,6 +313,46 @@ pub const Mint = struct {
 
         defer self.localstore.lock.unlock();
         try self.localstore.value.addMintQuote(quote);
+
+        return quote;
+    }
+
+    /// Creating new [`MeltQuote`], all arguments are cloned and reallocated
+    /// caller responsible on free resources of result
+    pub fn newMeltQuote(
+        self: *Mint,
+        request: []const u8,
+        unit: nuts.CurrencyUnit,
+        amount: core.amount.Amount,
+        fee_reserve: core.amount.Amount,
+        expiry: u64,
+        request_lookup_id: []const u8,
+    ) !MeltQuote {
+        const nut05 = self.mint_info.nuts.nut05;
+        if (nut05.disabled) return error.MeltingDisabled;
+        // TODO return check
+
+        // if (nut04.getSettings(unit, .bolt11)) |settings| {
+        //     if (settings.max_amount) |max_amount| if (amount > max_amount) return error.MintOverLimit;
+
+        //     if (settings.min_amount) |min_amount| if (amount < min_amount) return error.MintUnderLimit;
+        // } else return error.UnsupportedUnit;
+
+        const quote = MeltQuote.init(
+            request,
+            unit,
+            amount,
+            fee_reserve,
+            expiry,
+            request_lookup_id,
+        );
+
+        std.log.debug("New melt quote: {any}", .{quote});
+
+        self.localstore.lock.lock();
+
+        defer self.localstore.lock.unlock();
+        try self.localstore.value.addMeltQuote(quote);
 
         return quote;
     }

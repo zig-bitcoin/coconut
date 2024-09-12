@@ -6,6 +6,7 @@ const CurrencyUnit = @import("../nut00/nut00.zig").CurrencyUnit;
 const Proof = @import("../nut00/nut00.zig").Proof;
 const PaymentMethod = @import("../nut00/nut00.zig").PaymentMethod;
 const MintQuote = @import("../../mint/types.zig").MintQuote;
+const Amount = @import("../../amount.zig").Amount;
 
 pub const QuoteState = enum {
     /// Quote has not been paid
@@ -58,6 +59,14 @@ pub const Settings = struct {
 
         return null;
     }
+};
+
+/// Mint quote request [NUT-04]
+pub const MintQuoteBolt11Request = struct {
+    /// Amount
+    amount: Amount,
+    /// Unit wallet would like to pay with
+    unit: CurrencyUnit,
 };
 
 /// Mint quote response [NUT-04]

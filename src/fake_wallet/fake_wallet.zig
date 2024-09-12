@@ -6,7 +6,7 @@ const std = @import("std");
 const lightning_invoice = @import("../lightning_invoices/invoice.zig");
 const helper = @import("../helper/helper.zig");
 const zul = @import("zul");
-const secp256k1 = @import("secp256k1");
+const secp256k1 = @import("bitcoin-primitives").secp256k1;
 
 const Amount = core.amount.Amount;
 const PaymentQuoteResponse = core.lightning.PaymentQuoteResponse;
@@ -22,6 +22,19 @@ const MintQuoteState = core.nuts.nut04.QuoteState;
 // TODO:  wait any invoices, here we need create a new listener, that will receive
 // message like pub sub channel
 
+fn sendLabelFn(label: std.ArrayList(u8), ch: Channel(std.ArrayList(u8)).Tx, duration: u64) void {
+    errdefer label.deinit();
+
+    std.time.sleep(duration * @as(u64, 1e9));
+
+    ch.send(label) catch |err| {
+        std.log.err("send label {s}, failed: {any}", .{ label.items, err });
+        return;
+    };
+
+    std.log.debug("successfully sent label, label {s}", .{label.items});
+}
+
 /// Fake Wallet
 pub const FakeWallet = struct {
     const Self = @This();
@@ -31,6 +44,10 @@ pub const FakeWallet = struct {
     mint_settings: MintMeltSettings = .{},
     melt_settings: MintMeltSettings = .{},
 
+    thread_pool: *zul.ThreadPool(sendLabelFn),
+
+    allocator: std.mem.Allocator,
+
     /// Creat init [`FakeWallet`]
     pub fn init(
         allocator: std.mem.Allocator,
@@ -38,23 +55,29 @@ pub const FakeWallet = struct {
         mint_settings: MintMeltSettings,
         melt_settings: MintMeltSettings,
     ) !FakeWallet {
+        const ch = try Channel(std.ArrayList(u8)).init(allocator, 10);
+        errdefer ch.deinit();
+
         return .{
-            .chan = try Channel(std.ArrayList(u8)).init(allocator, 0),
+            .chan = ch,
             .fee_reserve = fee_reserve,
             .mint_settings = mint_settings,
             .melt_settings = melt_settings,
+            .allocator = allocator,
+            .thread_pool = try zul.ThreadPool(sendLabelFn).init(allocator, .{ .count = 3 }),
         };
     }
 
     pub fn deinit(self: *FakeWallet) void {
         self.chan.deinit();
+        self.thread_pool.deinit(self.allocator);
     }
 
     pub fn getSettings(self: *const Self) Settings {
         return .{
             .mpp = true,
             .unit = .msat,
-            .melt_settings = self.mel_settings,
+            .melt_settings = self.melt_settings,
             .mint_settings = self.mint_settings,
         };
     }
@@ -83,7 +106,7 @@ pub const FakeWallet = struct {
         );
 
         const relative_fee_reserve: u64 =
-            @intFromFloat(@as(f32, @floatFromInt(self.fee_reserve.percent_fee_reserve * amount)));
+            @intFromFloat(self.fee_reserve.percent_fee_reserve * @as(f32, @floatFromInt(amount)));
 
         const absolute_fee_reserve: u64 = self.fee_reserve.min_fee_reserve;
 
@@ -92,7 +115,7 @@ pub const FakeWallet = struct {
         else
             absolute_fee_reserve;
 
-        const req_lookup_id = try helper.copySlice(allocator, &melt_quote_request.request.paymentHash());
+        const req_lookup_id = try helper.copySlice(allocator, &melt_quote_request.request.paymentHash().inner);
         errdefer allocator.free(req_lookup_id);
 
         return .{
@@ -132,6 +155,7 @@ pub const FakeWallet = struct {
         return .paid;
     }
 
+    /// creating invoice - caller own response and responsible to free
     pub fn createInvoice(
         self: *const Self,
         gpa: std.mem.Allocator,
@@ -143,19 +167,12 @@ pub const FakeWallet = struct {
         const time_now: u64 = @intCast(std.time.timestamp());
         std.debug.assert(unix_expiry > time_now);
 
-        const label = zul.UUID.v4().toHex(.lower);
-
-        const private_key = try secp256k1.SecretKey.fromSlice(
-            &.{
-                0xe1, 0x26, 0xf6, 0x8f, 0x7e, 0xaf, 0xcc, 0x8b, 0x74, 0xf5, 0x4d, 0x26, 0x9f, 0xe2,
-                0x06, 0xbe, 0x71, 0x50, 0x00, 0xf9, 0x4d, 0xac, 0x06, 0x7d, 0x1c, 0x04, 0xa8, 0xca,
-                0x3b, 0x2d, 0xb7, 0x34,
-            },
-        );
+        const label = try gpa.dupe(u8, &zul.UUID.v4().toHex(.lower));
+        errdefer gpa.free(label);
 
         const sha256 = std.crypto.hash.sha2.Sha256;
 
-        const payment_hash: [sha256.digest_length]u8 = undefined;
+        var payment_hash: [sha256.digest_length]u8 = undefined;
 
         sha256.hash(&([_]u8{0} ** 32), &payment_hash, .{});
 
@@ -164,34 +181,51 @@ pub const FakeWallet = struct {
         const _amount = try core.lightning.toUnit(amount, unit, .msat);
 
         var invoice_builder = try lightning_invoice.InvoiceBuilder.init(gpa, .bitcoin);
-        // errdefer invoice_builder.deinit(); // TODO
+        errdefer invoice_builder.deinit();
 
         try invoice_builder.setDescription(gpa, description);
-        try invoice_builder.setPaymentHash(gpa, payment_hash);
+        try invoice_builder.setPaymentHash(payment_hash);
         try invoice_builder.setPaymentSecret(gpa, .{ .inner = payment_secret });
         try invoice_builder.setAmountMilliSatoshis(_amount);
         try invoice_builder.setCurrentTimestamp();
         try invoice_builder.setMinFinalCltvExpiryDelta(144);
-        try invoice_builder.tryBuildSigned(gpa, (struct {
-            var pk = private_key;
 
+        var signed_invoice = try invoice_builder.tryBuildSigned(gpa, (struct {
             fn sign(hash: secp256k1.Message) !secp256k1.ecdsa.RecoverableSignature {
+                const private_key = try secp256k1.SecretKey.fromSlice(
+                    &.{
+                        0xe1, 0x26, 0xf6, 0x8f, 0x7e, 0xaf, 0xcc, 0x8b, 0x74, 0xf5, 0x4d, 0x26, 0x9f, 0xe2,
+                        0x06, 0xbe, 0x71, 0x50, 0x00, 0xf9, 0x4d, 0xac, 0x06, 0x7d, 0x1c, 0x04, 0xa8, 0xca,
+                        0x3b, 0x2d, 0xb7, 0x34,
+                    },
+                );
+
                 var secp = secp256k1.Secp256k1.genNew();
                 defer secp.deinit();
 
-                return try secp.signEcdsaRecoverable(&hash, pk);
+                return secp.signEcdsaRecoverable(&hash, &private_key);
             }
         }).sign);
+        errdefer signed_invoice.deinit();
 
         // Create a random delay between 3 and 6 seconds
         const duration = std.crypto.random.intRangeLessThanBiased(u64, 3, 7);
-        _ = duration; // autofix
 
-        // let sender = self.sender.clone();
-        // let label_clone = label.clone();
+        // spawning thread to sent label
+        {
+            const label_clone = try self.allocator.dupe(u8, label);
+            errdefer self.allocator.free(label_clone);
 
-        _ = label; // autofix
-        _ = self; // autofix
+            try self.thread_pool.spawn(.{ std.ArrayList(u8).fromOwnedSlice(self.allocator, label_clone), self.chan.getTx(), duration });
+        }
+
+        const expiry = signed_invoice.expiresAtSecs();
+
+        return .{
+            .request_lookup_id = label,
+            .request = signed_invoice,
+            .expiry = expiry,
+        };
     }
 };
 

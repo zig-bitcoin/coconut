@@ -231,9 +231,8 @@ pub const MintMemoryDatabase = struct {
     pub fn addMintQuote(self: *Self, quote: MintQuote) !void {
         self.lock.lock();
         defer self.lock.unlock();
-        // TODO clone quote
 
-        try self.mint_quotes.put(quote.id, quote);
+        try self.mint_quotes.put(quote.id, try quote.clone(self.allocator));
     }
 
     // caller must free MintQuote
@@ -334,7 +333,7 @@ pub const MintMemoryDatabase = struct {
         self.lock.lock();
         defer self.lock.unlock();
 
-        try self.melt_quotes.put(quote.id, quote);
+        try self.melt_quotes.put(quote.id, try quote.clone(self.allocator));
     }
 
     // caller must free MeltQuote
