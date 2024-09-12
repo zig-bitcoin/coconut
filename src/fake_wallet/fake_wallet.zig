@@ -26,10 +26,10 @@ const MintQuoteState = core.nuts.nut04.QuoteState;
 pub const FakeWallet = struct {
     const Self = @This();
 
-    fee_reserve: core.mint.FeeReserve,
-    chan: *Channel([]const u8), // we using signle channel for sending invoices
-    mint_settings: MintMeltSettings,
-    melt_settings: MintMeltSettings,
+    fee_reserve: core.mint.FeeReserve = .{},
+    chan: *Channel([]const u8) = undefined, // we using signle channel for sending invoices
+    mint_settings: MintMeltSettings = .{},
+    melt_settings: MintMeltSettings = .{},
 
     /// Creat init [`FakeWallet`]
     pub fn init(

@@ -27,6 +27,50 @@ pub const MintMemoryDatabase = struct {
 
     allocator: std.mem.Allocator,
 
+    pub fn deinit(self: *MintMemoryDatabase) void {
+        self.active_keysets.deinit();
+
+        {
+            var it = self.keysets.iterator();
+            while (it.next()) |entry| {
+                entry.value_ptr.*.deinit(self.allocator);
+            }
+
+            self.keysets.deinit();
+        }
+
+        {
+            var it = self.mint_quotes.iterator();
+            while (it.next()) |entry| {
+                entry.value_ptr.*.deinit(self.allocator);
+            }
+
+            self.mint_quotes.deinit();
+        }
+
+        {
+            var it = self.melt_quotes.iterator();
+            while (it.next()) |entry| {
+                entry.value_ptr.*.deinit(self.allocator);
+            }
+
+            self.melt_quotes.deinit();
+        }
+
+        {
+            var it = self.proofs.iterator();
+            while (it.next()) |entry| {
+                entry.value_ptr.*.deinit(self.allocator);
+            }
+
+            self.proofs.deinit();
+        }
+
+        self.proof_states.deinit();
+
+        self.blinded_signatures.deinit();
+    }
+
     /// initFrom - take own on all data there, except slices (only own data in slices)
     pub fn initFrom(
         allocator: std.mem.Allocator,

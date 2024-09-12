@@ -43,6 +43,14 @@
             .url = "git+https://github.com/zig-bitcoin/bitcoin-primitives#b51ffa5b67e376a102bde0250e4235bc66e32c2e",
             .hash = "1220ae99270542861a0f2cc5d9b0b2df2f11c6bd2ce431c9067c5c958cd36f66c948",
         },
+        .@"zig-toml" = .{
+            .url = "git+https://github.com/sam701/zig-toml#78c8512273ab83c0a71f1063d9049ce7abdb70b0",
+            .hash = "122090781267644f32a5ab9c0be0eae71df5ac3401f017e39dd6a58f583b7e10f1d1",
+        },
+        .clap = .{
+            .url = "git+https://github.com/Hejsil/zig-clap#2d9db156ae928860a9acf2f1260750d3b44a4c98",
+            .hash = "122005e589ab3b6bff8e589b45f5b12cd27ce79f266bdac17e9f33ebfe2fbaff7fe3",
+        },
     },
     .paths = .{
         "build.zig",
