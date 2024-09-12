@@ -27,7 +27,7 @@ pub const FakeWallet = struct {
     const Self = @This();
 
     fee_reserve: core.mint.FeeReserve = .{},
-    chan: *Channel([]const u8) = undefined, // we using signle channel for sending invoices
+    chan: *Channel(std.ArrayList(u8)) = undefined, // we using signle channel for sending invoices
     mint_settings: MintMeltSettings = .{},
     melt_settings: MintMeltSettings = .{},
 
@@ -39,7 +39,7 @@ pub const FakeWallet = struct {
         melt_settings: MintMeltSettings,
     ) !FakeWallet {
         return .{
-            .chan = try Channel([]const u8).init(allocator, 0),
+            .chan = try Channel(std.ArrayList(u8)).init(allocator, 0),
             .fee_reserve = fee_reserve,
             .mint_settings = mint_settings,
             .melt_settings = melt_settings,
@@ -62,7 +62,7 @@ pub const FakeWallet = struct {
     // Result is channel with invoices, caller must free result
     pub fn waitAnyInvoice(
         self: *const Self,
-    ) !Channel([]const u8).Rx {
+    ) !Channel(std.ArrayList(u8)).Rx {
         return self.chan.getRx();
     }
 
@@ -182,6 +182,13 @@ pub const FakeWallet = struct {
                 return try secp.signEcdsaRecoverable(&hash, pk);
             }
         }).sign);
+
+        // Create a random delay between 3 and 6 seconds
+        const duration = std.crypto.random.intRangeLessThanBiased(u64, 3, 7);
+        _ = duration; // autofix
+
+        // let sender = self.sender.clone();
+        // let label_clone = label.clone();
 
         _ = label; // autofix
         _ = self; // autofix

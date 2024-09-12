@@ -18,8 +18,16 @@ const MintDatabase = core.mint_memory.MintMemoryDatabase;
 const ContactInfo = core.nuts.ContactInfo;
 const MintVersion = core.nuts.MintVersion;
 const MintInfo = core.nuts.MintInfo;
+const Channel = @import("channels/channels.zig").Channel;
 
 const default_quote_ttl_secs: u64 = 1800;
+
+/// Update mint quote when called for a paid invoice
+fn handlePaidInvoice(mint: *Mint, request_lookup_id: []const u8) !void {
+    std.log.debug("Invoice with lookup id paid: {s}", .{request_lookup_id});
+
+    try mint.payMintQuoteForRequestId(request_lookup_id);
+}
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{
@@ -194,6 +202,13 @@ pub fn main() !void {
     var srv = try router.createMintServer(gpa.allocator(), mint_url, &mint, ln_backends, quote_ttl, .{
         .port = listen_port,
         .address = listen_addr,
+    }, &.{
+        .{
+            httpz.middleware.Cors, .{
+                .origin = "*",
+                .headers = "*",
+            },
+        },
     });
     defer srv.deinit();
 
@@ -202,6 +217,36 @@ pub fn main() !void {
 
     // Spawn task to wait for invoces to be paid and update mint quotes
     // handle invoices
+    const threads = v: {
+        var threads = try std.ArrayList(std.Thread).initCapacity(gpa.allocator(), ln_backends.count());
+        errdefer threads.deinit();
+        errdefer for (threads.items) |t| t.detach();
+
+        const thread_fn = (struct {
+            fn handleLnInvoice(m: *Mint, wait_ch: Channel(std.ArrayList(u8)).Rx) void {
+                while (true) {
+                    var request_lookup_id = wait_ch.recv();
+                    defer request_lookup_id.deinit();
+
+                    handlePaidInvoice(m, request_lookup_id.items) catch |err| {
+                        std.log.warn("handle paid invoice error, lookup_id {s}, err={s}", .{ request_lookup_id.items, @errorName(err) });
+                        continue;
+                    };
+                }
+            }
+        }).handleLnInvoice;
+
+        var it = ln_backends.iterator();
+        while (it.next()) |ln_entry| {
+            threads.appendAssumeCapacity(try std.Thread.spawn(.{}, thread_fn, .{
+                &mint, try ln_entry.value_ptr.waitAnyInvoice(),
+            }));
+        }
+        break :v threads;
+    };
+    defer threads.deinit();
+    defer for (threads.items) |t| t.detach();
+
     // for (_, ln) in ln_backends {
     //     let mint = Arc::clone(&mint);
     //     tokio::spawn(async move {

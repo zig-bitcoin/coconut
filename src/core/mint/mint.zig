@@ -522,6 +522,21 @@ pub const Mint = struct {
             .keysets = keysets,
         };
     }
+
+    /// Flag mint quote as paid
+    pub fn payMintQuoteForRequestId(
+        self: *Mint,
+        request_lookup_id: []const u8,
+    ) !void {
+        const mint_quote = (try self.localstore.value.getMintQuoteByRequestLookupId(self.allocator, request_lookup_id)) orelse return;
+
+        std.log.debug("Quote {any} paid by lookup id {s}", .{
+            mint_quote,
+            request_lookup_id,
+        });
+
+        _ = try self.localstore.value.updateMintQuoteState(mint_quote.id, .paid);
+    }
 };
 
 /// Generate new [`MintKeySetInfo`] from path

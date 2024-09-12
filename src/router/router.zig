@@ -22,6 +22,7 @@ pub fn createMintServer(
     ln: LnBackendsMap,
     quote_ttl: u64,
     server_options: httpz.Config,
+    middlewares: anytype,
 ) !httpz.Server(MintState) {
     // TODO do we need copy
     const state = MintState{
@@ -34,8 +35,16 @@ pub fn createMintServer(
     var srv = try httpz.Server(MintState).init(allocator, server_options, state);
     errdefer srv.deinit();
 
+    var _middlewares = try srv.arena.alloc(httpz.Middleware(MintState), middlewares.len);
+
+    inline for (middlewares, 0..) |m, i| {
+        _middlewares[i] = try srv.middleware(m[0], m[1]);
+    }
+
     // apply routes
-    var router = srv.router(.{});
+    var router = srv.router(.{
+        .middlewares = _middlewares,
+    });
 
     router.get("/v1/keys", router_handlers.getKeys, .{});
     router.get("/v1/keysets", router_handlers.getKeysets, .{});
