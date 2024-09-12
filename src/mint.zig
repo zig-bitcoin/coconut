@@ -6,24 +6,22 @@ const bip39 = bitcoin_primitives.bips.bip39;
 const core = @import("core/lib.zig");
 const os = std.os;
 const builtin = @import("builtin");
+const config = @import("mintd/config.zig");
+const clap = @import("clap");
 
 const MintState = @import("router/router.zig").MintState;
 const LnKey = @import("router/router.zig").LnKey;
 const FakeWallet = @import("fake_wallet/fake_wallet.zig").FakeWallet;
 const Mint = core.mint.Mint;
+const FeeReserve = core.mint.FeeReserve;
 const MintDatabase = core.mint_memory.MintMemoryDatabase;
+const ContactInfo = core.nuts.ContactInfo;
+const MintVersion = core.nuts.MintVersion;
+const MintInfo = core.nuts.MintInfo;
 
-/// The default log level is based on build mode.
-pub const default_level: std.log.Level = switch (builtin.mode) {
-    .Debug => .debug,
-    .ReleaseSafe => .notice,
-    .ReleaseFast => .err,
-    .ReleaseSmall => .err,
-};
+const default_quote_ttl_secs: u64 = 1800;
 
 pub fn main() !void {
-    const settings_info_mnemonic = "few oppose awkward uncover next patrol goose spike depth zebra brick cactus";
-
     var gpa = std.heap.GeneralPurposeAllocator(.{
         .stack_trace_frames = 20,
     }).init;
@@ -32,7 +30,96 @@ pub fn main() !void {
         std.debug.assert(gpa.deinit() == .ok);
     }
 
-    const mnemonic = try bip39.Mnemonic.parseInNormalized(.english, settings_info_mnemonic);
+    // parsing CLI
+
+    var clap_res = v: {
+        // First we specify what parameters our program can take.
+        // We can use `parseParamsComptime` to parse a string into an array of `Param(Help)`
+        const params = comptime clap.parseParamsComptime(
+            \\-h, --help             Display this help and exit.
+            \\-c, --config <str>     Use the <file name> as the location of the config file.
+            \\
+        );
+
+        // Initialize our diagnostics, which can be used for reporting useful errors.
+        // This is optional. You can also pass `.{}` to `clap.parse` if you don't
+        // care about the extra information `Diagnostics` provides.
+        var diag = clap.Diagnostic{};
+        var res = clap.parse(clap.Help, &params, clap.parsers.default, .{
+            .diagnostic = &diag,
+            .allocator = gpa.allocator(),
+        }) catch |err| {
+            // Report useful error and exit
+            diag.report(std.io.getStdErr().writer(), err) catch {};
+            return err;
+        };
+        errdefer res.deinit();
+
+        // helper to print help
+        if (res.args.help != 0)
+            return clap.help(std.io.getStdErr().writer(), clap.Help, &params, .{});
+
+        break :v res;
+    };
+    defer clap_res.deinit();
+
+    const config_path = clap_res.args.config orelse "config.toml";
+
+    var parsed_settings = try config.Settings.initFromToml(gpa.allocator(), config_path);
+    defer parsed_settings.deinit();
+
+    var localstore = switch (parsed_settings.value.database.engine) {
+        .in_memory => v: {
+            break :v try MintDatabase.initFrom(
+                gpa.allocator(),
+                .init(gpa.allocator()),
+                &.{},
+                &.{},
+                &.{},
+                &.{},
+                &.{},
+                .init(gpa.allocator()),
+            );
+        },
+        else => {
+            // not implemented engine
+            unreachable;
+        },
+    };
+    defer localstore.deinit();
+
+    var contact_info = std.ArrayList(ContactInfo).init(gpa.allocator());
+    defer contact_info.deinit();
+
+    if (parsed_settings.value.mint_info.contact_nostr_public_key) |nostr_contact| {
+        try contact_info.append(.{
+            .method = "nostr",
+            .info = nostr_contact,
+        });
+    }
+
+    if (parsed_settings.value.mint_info.contact_email) |email_contact| {
+        try contact_info.append(.{
+            .method = "email",
+            .info = email_contact,
+        });
+    }
+
+    const mint_version = MintVersion{
+        .name = "mint-server",
+        .version = "1.0.0", // TODO version
+    };
+
+    const relative_ln_fee = parsed_settings.value.ln.fee_percent;
+
+    const absolute_ln_fee_reserve = parsed_settings.value.ln.reserve_fee_min;
+
+    const fee_reserve = FeeReserve{
+        .min_fee_reserve = absolute_ln_fee_reserve,
+        .percent_fee_reserve = relative_ln_fee,
+    };
+
+    const input_fee_ppk = parsed_settings.value.info.input_fee_ppk orelse 0;
 
     var supported_units = std.AutoHashMap(core.nuts.CurrencyUnit, std.meta.Tuple(&.{ u64, u8 })).init(gpa.allocator());
     defer supported_units.deinit();
@@ -46,58 +133,103 @@ pub fn main() !void {
         ln_backends.deinit();
     }
 
-    // TODO ln_routers?
-    // init ln backend
-    {
-        const units: []const core.nuts.CurrencyUnit = &.{.sat};
+    // TODO set ln router
+    // additional routers for httpz server
+    switch (parsed_settings.value.ln.ln_backend) {
+        .fake_wallet => {
+            const units = (parsed_settings.value.fake_wallet orelse config.FakeWallet{}).supported_units;
 
-        for (units) |unit| {
-            const ln_key = LnKey.init(unit, .bolt11);
+            for (units) |unit| {
+                const ln_key = LnKey.init(unit, .bolt11);
 
-            const wallet = try FakeWallet.init(
-                gpa.allocator(),
-                .{
-                    .min_fee_reserve = 1,
-                    .percent_fee_reserve = 1.0,
-                },
-                .{},
-                .{},
-            );
+                var wallet = try FakeWallet.init(gpa.allocator(), fee_reserve, .{}, .{});
+                errdefer wallet.deinit();
 
-            try ln_backends.put(ln_key, wallet);
+                try ln_backends.put(ln_key, wallet);
 
-            try supported_units.put(unit, .{ 0, 64 });
-        }
+                try supported_units.put(unit, .{ input_fee_ppk, 64 });
+            }
+        },
+        else => {
+            // not implemented backends
+            unreachable;
+        },
     }
 
-    var db = try MintDatabase.initManaged(gpa.allocator());
-    defer db.deinit();
+    // TODO nuts settings
 
-    var mint = try Mint.init(gpa.allocator(), "MintUrl", &try mnemonic.toSeedNormalized(&.{}), .{
-        .name = "dfdf",
-        .pubkey = null,
-        .version = null,
-        .description = "dfdf",
-        .description_long = null,
-        .contact = null,
-        .nuts = .{},
-        .mint_icon_url = null,
-        .motd = null,
-    }, &db.value, supported_units);
+    const mint_info = MintInfo{
+        .name = parsed_settings.value.mint_info.name,
+        .version = mint_version,
+        .description = parsed_settings.value.mint_info.description,
+        .description_long = parsed_settings.value.mint_info.description_long,
+        .contact = contact_info.items,
+        .pubkey = parsed_settings.value.mint_info.pubkey,
+        .mint_icon_url = parsed_settings.value.mint_info.mint_icon_url,
+        .motd = parsed_settings.value.mint_info.motd,
+    };
+
+    const mnemonic = try bip39.Mnemonic.parseInNormalized(.english, parsed_settings.value.info.mnemonic);
+
+    var mint = try Mint.init(gpa.allocator(), parsed_settings.value.info.url, &try mnemonic.toSeedNormalized(&.{}), mint_info, &localstore, supported_units);
     defer mint.deinit();
 
-    var srv = try router.createMintServer(gpa.allocator(), "MintUrl", &mint, ln_backends, 15, .{
-        .port = 5500,
-        .address = "0.0.0.0",
+    // Check the status of any mint quotes that are pending
+    // In the event that the mint server is down but the ln node is not
+    // it is possible that a mint quote was paid but the mint has not been updated
+    // this will check and update the mint state of those quotes
+    // for ln in ln_backends.values() {
+    //     check_pending_quotes(Arc::clone(&mint), Arc::clone(ln)).await?;
+    // }
+    // TODO
+
+    const mint_url = parsed_settings.value.info.url;
+    const listen_addr = parsed_settings.value.info.listen_host;
+    const listen_port = parsed_settings.value.info.listen_port;
+    const quote_ttl = parsed_settings.value
+        .info
+        .seconds_quote_is_valid_for orelse default_quote_ttl_secs;
+
+    // start serevr
+    var srv = try router.createMintServer(gpa.allocator(), mint_url, &mint, ln_backends, quote_ttl, .{
+        .port = listen_port,
+        .address = listen_addr,
     });
     defer srv.deinit();
 
+    // add lnn router here to server
     try handleInterrupt(&srv);
-    std.log.info("Listening server", .{});
+
+    // Spawn task to wait for invoces to be paid and update mint quotes
+    // handle invoices
+    // for (_, ln) in ln_backends {
+    //     let mint = Arc::clone(&mint);
+    //     tokio::spawn(async move {
+    //         loop {
+    //             match ln.wait_any_invoice().await {
+    //                 Ok(mut stream) => {
+    //                     while let Some(request_lookup_id) = stream.next().await {
+    //                         if let Err(err) =
+    //                             handle_paid_invoice(mint.clone(), &request_lookup_id).await
+    //                         {
+    //                             tracing::warn!("{:?}", err);
+    //                         }
+    //                     }
+    //                 }
+    //                 Err(err) => {
+    //                     tracing::warn!("Could not get invoice stream: {}", err);
+    //                 }
+    //             }
+    //         }
+    //     });
+    // }
+
+    std.log.info("Listening server on {s}:{d}", .{
+        parsed_settings.value.info.listen_host, parsed_settings.value.info.listen_port,
+    });
     try srv.listen();
 
     std.log.info("Stopped server", .{});
-    // router.createMintServer(gpa.allocator(), bip39., , , )
 }
 
 pub fn handleInterrupt(srv: *httpz.Server(MintState)) !void {

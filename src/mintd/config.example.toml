@@ -1,0 +1,39 @@
+
+[info]
+url = "https://mint.thesimplekid.dev/"
+listen_host = "127.0.0.1"
+listen_port = 8085
+mnemonic = ""
+# input_fee_ppk = 0
+
+
+
+[mint_info]
+# name = "cdk-mintd mutiney net mint"
+# Hex publey of mint
+# pubkey = ""
+# description = "These are not real sats for testing only"
+# description_long = "A longer mint for testing"
+# motd = "Hello world"
+# mint_icon_url = "https://this-is-a-mint-icon-url.com/icon.png"
+# contact_email = "hello@cashu.me"
+# Nostr pubkey of mint (Hex)
+# contact_nostr_public_key = ""
+
+
+[database]
+# Database engine (sqlite/redb) defaults to sqlite
+# engine = "sqlite"
+
+[ln]
+# Required ln backend `cln`, `strike`, `fakewallet`
+ln_backend = "cln"
+
+# [cln]
+# Required if using cln backend path to rpc
+# cln_path = ""
+
+# [strike]
+# api_key=""
+# Optional default sats
+# supported_units=[""]

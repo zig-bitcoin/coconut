@@ -23,9 +23,9 @@ pub const MintMemoryDatabase = core.mint_memory.MintMemoryDatabase;
 /// Mint Fee Reserve
 pub const FeeReserve = struct {
     /// Absolute expected min fee
-    min_fee_reserve: core.amount.Amount,
+    min_fee_reserve: core.amount.Amount = 0,
     /// Percentage expected fee
-    percent_fee_reserve: f32,
+    percent_fee_reserve: f32 = 0,
 };
 
 /// Mint Keyset Info

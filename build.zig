@@ -21,6 +21,14 @@ const external_dependencies = [_]build_helpers.Dependency{
         .name = "zig-cli",
         .module_name = "zig-cli",
     },
+    .{
+        .name = "zig-toml",
+        .module_name = "zig-toml",
+    },
+    .{
+        .name = "clap",
+        .module_name = "clap",
+    },
 };
 
 pub fn build(b: *std.Build) !void {
