@@ -12,200 +12,7 @@ const Features = @import("features.zig");
 const RecoverableSignature = secp256k1.ecdsa.RecoverableSignature;
 const Message = secp256k1.Message;
 const Writer = ser.Writer;
-
-pub const InvoiceBuilder = struct {
-    currency: Currency,
-    amount: ?u64,
-    si_prefix: ?SiPrefix,
-    timestamp: ?u64,
-    tagged_fields: std.ArrayList(TaggedField),
-
-    /// exactly one [`TaggedField.description`] or [`TaggedField.description_hash`]
-    description_flag: bool = false,
-
-    /// exactly one [`TaggedField.payment_hash`]
-    hash_flag: bool = false,
-
-    ///  the timestamp is set
-    timestamp_flag: bool = false,
-
-    ///  the CLTV expiry is set
-    cltv_flag: bool = false,
-
-    ///  the payment secret is set
-    secret_flag: bool = false,
-
-    ///  payment metadata is set
-    payment_metadata_flag: bool = false,
-
-    /// Construct new, empty `InvoiceBuilder`. All necessary fields have to be filled first before
-    /// `InvoiceBuilder.build(self)` becomes available.
-    pub fn init(allocator: std.mem.Allocator, currency: Currency) !InvoiceBuilder {
-        return .{
-            .currency = currency,
-            .amount = null,
-            .si_prefix = null,
-            .timestamp = null,
-            .tagged_fields = try std.ArrayList(TaggedField).initCapacity(allocator, 8),
-        };
-    }
-
-    /// Builds a [`RawBolt11Invoice`] if no [`CreationError`] occurred while construction any of the
-    /// fields.
-    pub fn buildRaw(self: *const InvoiceBuilder, gpa: std.mem.Allocator) !RawBolt11Invoice {
-        const hrp = RawHrp{
-            .currency = self.currency,
-            .raw_amount = self.amount,
-            .si_prefix = self.si_prefix,
-        };
-
-        const timestamp = self.timestamp orelse @panic("expected timestamp");
-
-        var tagged_fields = try std.ArrayList(RawTaggedField).initCapacity(gpa, self.tagged_fields.items.len);
-        errdefer tagged_fields.deinit();
-
-        // we moving ownership of TaggedField
-        for (self.tagged_fields.items) |tf| {
-            tagged_fields.appendAssumeCapacity(.{ .known = tf });
-        }
-
-        const data = RawDataPart{
-            .timestamp = timestamp,
-            .tagged_fields = tagged_fields,
-        };
-
-        return .{
-            .hrp = hrp,
-            .data = data,
-        };
-    }
-
-    /// Builds and signs an invoice using the supplied `sign_function`. This function MAY fail with
-    /// an error of type `E` and MUST produce a recoverable signature valid for the given hash and
-    /// if applicable also for the included payee public key.
-    pub fn tryBuildSigned(self: *const InvoiceBuilder, gpa: std.mem.Allocator, sign_function: *const fn (Message) anyerror!RecoverableSignature) !Bolt11Invoice {
-        var raw = try self.buildRaw(gpa);
-        errdefer raw.deinit();
-
-        const invoice = Bolt11Invoice{
-            .signed_invoice = try raw.sign(gpa, sign_function),
-        };
-
-        // TODO
-        //invoice.check_field_counts().expect("should be ensured by type signature of builder");
-        // invoice.check_feature_bits().expect("should be ensured by type signature of builder");
-        // invoice.check_amount().expect("should be ensured by type signature of builder");
-
-        return invoice;
-    }
-
-    /// Set the description. This function is only available if no description (hash) was set.
-    /// copy description
-    pub fn setDescription(self: *InvoiceBuilder, allocator: std.mem.Allocator, description: []const u8) !void {
-        if (self.description_flag) return error.DescriptionAlreadySet;
-        const _description = try allocator.dupe(u8, description);
-        errdefer allocator.free(_description);
-
-        self.description_flag = true;
-
-        self.tagged_fields.appendAssumeCapacity(.{
-            .description = .{
-                .inner = std.ArrayList(u8).fromOwnedSlice(allocator, _description),
-            },
-        });
-    }
-
-    /// Set the description hash. This function is only available if no description (hash) was set.
-    pub fn setDescriptionHash(self: *InvoiceBuilder, description_hash: [Sha256.digest_length]u8) !void {
-        if (self.description_flag) return error.DescriptionAlreadySet;
-        self.description_flag = true;
-
-        self.tagged_fields.appendAssumeCapacity(.{
-            .description_hash = .{
-                .inner = description_hash,
-            },
-        });
-    }
-
-    /// Set the payment hash. This function is only available if no payment hash was set.
-    pub fn setPaymentHash(self: *InvoiceBuilder, hash: [Sha256.digest_length]u8) !void {
-        if (self.hash_flag) return error.PaymentHashAlreadySet;
-
-        self.hash_flag = true;
-
-        self.tagged_fields.appendAssumeCapacity(.{
-            .payment_hash = .{
-                .inner = hash,
-            },
-        });
-    }
-
-    /// Sets the timestamp to a specific .
-    pub fn setTimestamp(self: *InvoiceBuilder, time: u64) !void {
-        if (self.timestamp_flag) return error.TimestampAlreadySet;
-
-        self.timestamp_flag = true;
-
-        self.timestamp = time;
-    }
-    /// Sets the timestamp to a specific .
-    pub fn setCurrentTimestamp(self: *InvoiceBuilder) !void {
-        if (self.timestamp_flag) return error.TimestampAlreadySet;
-
-        self.timestamp_flag = true;
-
-        self.timestamp = @intCast(std.time.timestamp());
-    }
-
-    /// Sets `min_final_cltv_expiry_delta`.
-    pub fn setMinFinalCltvExpiryDelta(self: *InvoiceBuilder, delta: u64) !void {
-        if (self.cltv_flag) return error.CltvExpiryAlreadySet;
-
-        self.tagged_fields.appendAssumeCapacity(.{ .min_final_cltv_expiry_delta = .{ .inner = delta } });
-    }
-
-    /// Sets the payment secret and relevant features.
-    pub fn setPaymentSecret(self: *InvoiceBuilder, gpa: std.mem.Allocator, payment_secret: PaymentSecret) !void {
-        self.secret_flag = true;
-
-        var found_features = false;
-        for (self.tagged_fields.items) |*f| {
-            switch (f.*) {
-                .features => |*field| {
-                    found_features = true;
-                    try field.set(Features.tlv_onion_payload_required);
-                    try field.set(Features.payment_addr_required);
-                },
-                else => continue,
-            }
-        }
-
-        self.tagged_fields.appendAssumeCapacity(.{ .payment_secret = payment_secret });
-
-        if (!found_features) {
-            var features = Features{
-                .flags = std.AutoHashMap(Features.FeatureBit, void).init(gpa),
-            };
-
-            try features.set(Features.tlv_onion_payload_required);
-            try features.set(Features.payment_addr_required);
-
-            self.tagged_fields.appendAssumeCapacity(.{ .features = features });
-        }
-    }
-
-    /// Sets the amount in millisatoshis. The optimal SI prefix is chosen automatically.
-    pub fn setAmountMilliSatoshis(self: *InvoiceBuilder, amount_msat: u64) !void {
-        const amount = std.math.mul(u64, amount_msat, 10) catch return error.InvalidAmount;
-
-        const biggest_possible_si_prefix = for (SiPrefix.valuesDesc()) |prefix| {
-            if (amount % prefix.multiplier() == 0) break prefix;
-        } else @panic("Pico should always match");
-
-        self.amount = amount / biggest_possible_si_prefix.multiplier();
-        self.si_prefix = biggest_possible_si_prefix;
-    }
-};
+const InvoiceBuilder = @import("builder.zig");
 
 /// Construct the invoice's HRP and signatureless data into a preimage to be hashed.
 pub fn constructInvoicePreimage(allocator: std.mem.Allocator, hrp_bytes: []const u8, data_without_signature: []const u5) !std.ArrayList(u8) {
@@ -248,9 +55,11 @@ pub fn constructInvoicePreimage(allocator: std.mem.Allocator, hrp_bytes: []const
 ///
 /// [`Bolt11Invoice::from_str`]: crate::Bolt11Invoice#impl-FromStr
 pub const Bolt11Invoice = struct {
+    const Self = @This();
+
     signed_invoice: SignedRawBolt11Invoice,
 
-    pub fn deinit(self: *@This()) void {
+    pub fn deinit(self: *Self) void {
         self.signed_invoice.deinit();
     }
 
@@ -260,7 +69,7 @@ pub const Bolt11Invoice = struct {
         return Bolt11Invoice.fromSigned(signed);
     }
 
-    pub fn fromSigned(signed_invoice: SignedRawBolt11Invoice) !@This() {
+    pub fn fromSigned(signed_invoice: SignedRawBolt11Invoice) !Self {
         const invoice = Bolt11Invoice{ .signed_invoice = signed_invoice };
 
         //       invoice.check_field_counts()?;
@@ -272,12 +81,12 @@ pub const Bolt11Invoice = struct {
     }
 
     /// Returns the amount if specified in the invoice as pico BTC.
-    fn amountPicoBtc(self: @This()) ?u64 {
+    fn amountPicoBtc(self: Self) ?u64 {
         return self.signed_invoice.raw_invoice.amountPicoBtc();
     }
 
     /// Check that amount is a whole number of millisatoshis
-    fn checkAmount(self: @This()) !void {
+    fn checkAmount(self: Self) !void {
         if (self.amountPicoBtc()) |amount_pico_btc| {
             if (amount_pico_btc % 10 != 0) {
                 return error.ImpreciseAmount;
@@ -286,13 +95,31 @@ pub const Bolt11Invoice = struct {
     }
 
     /// Returns the amount if specified in the invoice as millisatoshis.
-    pub fn amountMilliSatoshis(self: @This()) ?u64 {
+    pub fn amountMilliSatoshis(self: Self) ?u64 {
         return if (self.signed_invoice.raw_invoice.amountPicoBtc()) |v| v / 10 else null;
     }
 
     /// Returns the hash to which we will receive the preimage on completion of the payment
-    pub fn paymentHash(self: @This()) Sha256Hash {
+    pub fn paymentHash(self: Self) Sha256Hash {
         return self.signed_invoice.raw_invoice.getKnownTag(.payment_hash) orelse @panic("expected payment_hash");
+    }
+
+    /// Returns the `Bolt11Invoice`'s timestamp as a seconds since the Unix epoch
+    pub fn secondsSinceEpoch(self: *const Self) u64 {
+        return self.signed_invoice.raw_invoice.data.timestamp;
+    }
+
+    /// Returns whether the expiry time would pass at the given point in time.
+    /// `at_time` is the timestamp as a seconds since the Unix epoch.
+    pub fn wouldExpire(self: *const Bolt11Invoice, at_time: u64) bool {
+        return (std.math.add(u64, self.secondsSinceEpoch(), self.expiryTime()) catch std.math.maxInt(u64)) < at_time;
+    }
+
+    /// Returns the invoice's expiry time, if present, otherwise [`default_expiry_time`] in seconds.
+    pub fn expiryTime(self: *const Self) u64 {
+        return v: {
+            break :v (self.signed_invoice.raw_invoice.getKnownTag(.expiry_time) orelse break :v default_expiry_time).inner;
+        };
     }
 };
 
@@ -732,7 +559,7 @@ pub const MAX_TIMESTAMP: u64 = (1 << TIMESTAMP_BITS) - 1;
 /// Default expiry time as defined by [BOLT 11].
 ///
 /// [BOLT 11]: https://github.com/lightning/bolts/blob/master/11-payment-encoding.md
-pub const DEFAULT_EXPIRY_TIME: u64 = 3600;
+pub const default_expiry_time: u64 = 3600;
 
 /// Default minimum final CLTV expiry as defined by [BOLT 11].
 ///
@@ -1457,4 +1284,8 @@ test "full serialize" {
 
         try std.testing.expectEqualSlices(u8, vv, double_encoded);
     }
+}
+
+test {
+    _ = @import("builder.zig");
 }
