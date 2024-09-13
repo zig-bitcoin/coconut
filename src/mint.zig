@@ -164,7 +164,58 @@ pub fn main() !void {
         },
     }
 
+    var nuts = core.nuts.Nuts{};
     // TODO nuts settings
+    {
+        var nut04 = try std.ArrayList(core.nuts.nut04.MintMethodSettings).initCapacity(gpa.allocator(), ln_backends.count());
+        errdefer nut04.deinit();
+        var nut05 = try std.ArrayList(core.nuts.nut05.MeltMethodSettings).initCapacity(gpa.allocator(), ln_backends.count());
+        errdefer nut05.deinit();
+
+        var mpp = try std.ArrayList(core.nuts.nut15.MppMethodSettings).initCapacity(gpa.allocator(), ln_backends.count());
+        errdefer mpp.deinit();
+
+        var it = ln_backends.iterator();
+
+        while (it.next()) |ln_entry| {
+            const settings = ln_entry.value_ptr.getSettings();
+
+            const m = core.nuts.nut15.MppMethodSettings{
+                .method = ln_entry.key_ptr.method,
+                .unit = ln_entry.key_ptr.unit,
+                .mpp = settings.mpp,
+            };
+
+            const n4 = core.nuts.nut04.MintMethodSettings{
+                .method = ln_entry.key_ptr.method,
+                .unit = ln_entry.key_ptr.unit,
+                .min_amount = settings.mint_settings.min_amount,
+                .max_amount = settings.mint_settings.max_amount,
+            };
+            const n5 = core.nuts.nut05.MeltMethodSettings{
+                .method = ln_entry.key_ptr.method,
+                .unit = ln_entry.key_ptr.unit,
+                .min_amount = settings.melt_settings.min_amount,
+                .max_amount = settings.melt_settings.max_amount,
+            };
+
+            nut04.appendAssumeCapacity(n4);
+            nut05.appendAssumeCapacity(n5);
+            mpp.appendAssumeCapacity(m);
+        }
+
+        nuts.nut04.methods = try nut04.toOwnedSlice();
+        nuts.nut05.methods = try nut05.toOwnedSlice();
+        nuts.nut15.methods = try mpp.toOwnedSlice();
+
+        nuts.nut07.supported = true;
+        nuts.nut08.supported = true;
+        nuts.nut09.supported = true;
+        nuts.nut10.supported = true;
+        nuts.nut11.supported = true;
+        nuts.nut12.supported = true;
+        nuts.nut14.supported = true;
+    }
 
     const mint_info = MintInfo{
         .name = parsed_settings.value.mint_info.name,
@@ -175,6 +226,7 @@ pub fn main() !void {
         .pubkey = parsed_settings.value.mint_info.pubkey,
         .mint_icon_url = parsed_settings.value.mint_info.mint_icon_url,
         .motd = parsed_settings.value.mint_info.motd,
+        .nuts = nuts,
     };
 
     const mnemonic = try bip39.Mnemonic.parseInNormalized(.english, parsed_settings.value.info.mnemonic);
@@ -246,28 +298,6 @@ pub fn main() !void {
     };
     defer threads.deinit();
     defer for (threads.items) |t| t.detach();
-
-    // for (_, ln) in ln_backends {
-    //     let mint = Arc::clone(&mint);
-    //     tokio::spawn(async move {
-    //         loop {
-    //             match ln.wait_any_invoice().await {
-    //                 Ok(mut stream) => {
-    //                     while let Some(request_lookup_id) = stream.next().await {
-    //                         if let Err(err) =
-    //                             handle_paid_invoice(mint.clone(), &request_lookup_id).await
-    //                         {
-    //                             tracing::warn!("{:?}", err);
-    //                         }
-    //                     }
-    //                 }
-    //                 Err(err) => {
-    //                     tracing::warn!("Could not get invoice stream: {}", err);
-    //                 }
-    //             }
-    //         }
-    //     });
-    // }
 
     std.log.info("Listening server on {s}:{d}", .{
         parsed_settings.value.info.listen_host, parsed_settings.value.info.listen_port,

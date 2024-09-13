@@ -1,6 +1,7 @@
 const std = @import("std");
 const httpz = @import("httpz");
 const core = @import("../core/lib.zig");
+const zul = @import("zul");
 
 const FakeWallet = @import("../fake_wallet/fake_wallet.zig").FakeWallet;
 const MintState = @import("router.zig").MintState;
@@ -27,6 +28,24 @@ pub fn getKeysetPubkeys(
     const pubkeys = try state.mint.keysetPubkeys(req.arena, ks_id);
 
     return try res.json(pubkeys, .{});
+}
+
+pub fn getCheckMintBolt11Quote(
+    state: MintState,
+    req: *httpz.Request,
+    res: *httpz.Response,
+) !void {
+    const quote_id_hex = req.param("quote_id") orelse return error.ExpectQuoteId;
+
+    const quote_id = try zul.UUID.parse(quote_id_hex);
+    const quote = state
+        .mint
+        .checkMintQuote(res.arena, quote_id.bin) catch |err| {
+        std.log.debug("Could not check mint quote {any}: {any}", .{ quote_id, err });
+        return error.CheckMintQuoteFailed;
+    };
+
+    return try res.json(quote, .{});
 }
 
 pub fn postCheck(

@@ -6,6 +6,7 @@ const secp256k1 = bitcoin_primitives.secp256k1;
 const bip32 = bitcoin_primitives.bips.bip32;
 const helper = @import("../../helper/helper.zig");
 const nuts = core.nuts;
+const zul = @import("zul");
 
 const RWMutex = helper.RWMutex;
 const MintInfo = core.nuts.MintInfo;
@@ -377,7 +378,7 @@ pub const Mint = struct {
         };
 
         const result = MintQuoteBolt11Response{
-            .quote = &quote.id,
+            .quote = try zul.UUID.binToHex(&quote.id, .lower),
             .request = quote.request,
             .paid = paid,
             .state = state,

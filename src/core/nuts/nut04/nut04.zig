@@ -2,6 +2,8 @@
 //!
 //! <https://github.com/cashubtc/nuts/blob/main/04.md>
 const std = @import("std");
+const zul = @import("zul");
+
 const CurrencyUnit = @import("../nut00/nut00.zig").CurrencyUnit;
 const Proof = @import("../nut00/nut00.zig").Proof;
 const PaymentMethod = @import("../nut00/nut00.zig").PaymentMethod;
@@ -26,6 +28,19 @@ pub const QuoteState = enum {
         if (std.mem.eql(u8, "ISSUED", s)) return .issued;
 
         return error.UnknownState;
+    }
+
+    pub fn toStr(self: *const QuoteState) []const u8 {
+        return switch (self.*) {
+            .unpaid => "UNPAID",
+            .paid => "PAID",
+            .pending => "PENDING",
+            .issued => "ISSUED",
+        };
+    }
+
+    pub fn jsonStringify(self: *const QuoteState, out: anytype) !void {
+        try out.write(self.toStr());
     }
 };
 
@@ -72,7 +87,7 @@ pub const MintQuoteBolt11Request = struct {
 /// Mint quote response [NUT-04]
 pub const MintQuoteBolt11Response = struct {
     /// Quote Id
-    quote: []const u8,
+    quote: [36]u8,
     /// Payment request to fulfil
     request: []const u8,
     // TODO: To be deprecated
@@ -85,15 +100,15 @@ pub const MintQuoteBolt11Response = struct {
     expiry: ?u64,
 
     pub fn clone(self: *const @This(), allocator: std.mem.Allocator) !@This() {
-        const quote = try allocator.dupe(u8, self.quote);
-        errdefer allocator.free(quote);
+        // const quote = try allocator.dupe(u8, self.quote);
+        // errdefer allocator.free(quote);
 
         const request = try allocator.dupe(u8, self.request);
         errdefer allocator.free(request);
 
         var cloned = self.*;
         cloned.request = request;
-        cloned.quote = quote;
+        // cloned.quote = quote;
         return cloned;
     }
 
@@ -106,7 +121,7 @@ pub const MintQuoteBolt11Response = struct {
     pub fn fromMintQuote(mint_quote: MintQuote) !MintQuoteBolt11Response {
         const paid = mint_quote.state == .paid;
         return .{
-            .quote = &mint_quote.id,
+            .quote = try zul.UUID.binToHex(&mint_quote.id, .lower),
             .request = mint_quote.request,
             .paid = paid,
             .state = mint_quote.state,

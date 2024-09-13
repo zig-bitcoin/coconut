@@ -49,6 +49,7 @@ pub fn createMintServer(
     router.get("/v1/keys", router_handlers.getKeys, .{});
     router.get("/v1/keysets", router_handlers.getKeysets, .{});
     router.get("/v1/keys/:keyset_id", router_handlers.getKeysetPubkeys, .{});
+    router.get("/v1/mint/quote/bolt11/:quote_id", router_handlers.getCheckMintBolt11Quote, .{});
     router.post("/v1/checkstate", router_handlers.postCheck, .{});
     router.get("/v1/info", router_handlers.getMintInfo, .{});
 
@@ -81,6 +82,13 @@ pub const MintState = struct {
     mint: *Mint,
     mint_url: []const u8,
     quote_ttl: u64,
+
+    pub fn uncaughtError(self: *const MintState, req: *httpz.Request, res: *httpz.Response, err: anyerror) void {
+        _ = self; // autofix
+        std.log.info("500 {} {s} {}", .{ req.method, req.url.path, err });
+        res.status = 500;
+        res.body = "sorry";
+    }
 };
 
 /// Key used in hashmap of ln backends to identify what unit and payment method it is for
