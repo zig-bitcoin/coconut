@@ -26,6 +26,16 @@ pub const MintQuote = struct {
     /// Value used by ln backend to look up state of request
     request_lookup_id: []const u8,
 
+    /// formatting mint quote
+    pub fn format(
+        self: MintQuote,
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        try writer.print("{}", .{std.json.fmt(self, .{})});
+    }
+
     /// Create new [`MintQuote`]
     /// creating copy of arguments, so caller responsible on deinit resources
     pub fn initAlloc(

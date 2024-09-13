@@ -116,6 +116,26 @@ pub fn getMintBolt11Quote(
     );
 }
 
+pub fn postMintBolt11(
+    state: MintState,
+    req: *httpz.Request,
+    res: *httpz.Response,
+) !void {
+    errdefer std.log.debug("{any}", .{@errorReturnTrace()});
+
+    const payload = try req.json(core.nuts.nut04.MintBolt11Request) orelse return error.WrongRequest;
+
+    const r = state.mint
+        .processMintRequest(res.arena, payload) catch |err| {
+        // TODO print self error
+        std.log.err("could not process mint {any}, err {any}", .{ payload, err });
+
+        return err;
+    };
+
+    return try res.json(r, .{});
+}
+
 pub fn getMeltBolt11Quote(
     state: MintState,
     req: *httpz.Request,

@@ -422,7 +422,7 @@ pub const Mint = struct {
         // check if keyset already in
         {
             self.keysets.lock.lockShared();
-            defer self.keysets.lock.lockShared();
+            defer self.keysets.lock.unlockShared();
 
             if (self.keysets.value.contains(id)) return;
         }
@@ -586,6 +586,115 @@ pub const Mint = struct {
         });
 
         _ = try self.localstore.value.updateMintQuoteState(mint_quote.id, .paid);
+    }
+
+    /// Blind Sign
+    pub fn blindSign(
+        self: *Mint,
+        gpa: std.mem.Allocator,
+        blinded_message: core.nuts.BlindedMessage,
+    ) !core.nuts.BlindSignature {
+        try self.ensureKeysetLoaded(blinded_message.keyset_id);
+
+        const keyset_info = try self
+            .localstore.value
+            .getKeysetInfo(gpa, blinded_message.keyset_id) orelse return error.UnknownKeySet;
+        errdefer keyset_info.deinit(gpa);
+
+        const active = self
+            .localstore
+            .value
+            .getActiveKeysetId(keyset_info.unit) orelse return error.InactiveKeyset;
+
+        // Check that the keyset is active and should be used to sign
+        if (!std.meta.eql(keyset_info.id, active)) {
+            return error.InactiveKeyset;
+        }
+
+        const keyset = v: {
+            self.keysets.lock.lock();
+            defer self.keysets.lock.unlock();
+
+            break :v self.keysets.value.get(blinded_message.keyset_id) orelse return error.UknownKeySet;
+        };
+
+        const key_pair = keyset.keys.inner.get(blinded_message.amount) orelse return error.AmountKey;
+
+        const c = try core.dhke.signMessage(
+            self.secp_ctx,
+            key_pair.secret_key,
+            blinded_message.blinded_secret,
+        );
+
+        const blinded_signature = try core.nuts.initBlindSignature(
+            self.secp_ctx,
+            blinded_message.amount,
+            c,
+            keyset_info.id,
+            blinded_message.blinded_secret,
+            key_pair.secret_key,
+        );
+
+        return blinded_signature;
+    }
+
+    /// Process mint request
+    pub fn processMintRequest(
+        self: *Mint,
+        gpa: std.mem.Allocator,
+        mint_request: core.nuts.nut04.MintBolt11Request,
+    ) !core.nuts.nut04.MintBolt11Response {
+        const quote_id = try zul.UUID.parse(&mint_request.quote);
+        const state = try self.localstore.value.updateMintQuoteState(quote_id.bin, .pending);
+
+        std.log.debug("process_mitn_request: quote_id {s}", .{quote_id.toHex(.lower)});
+        switch (state) {
+            .unpaid => return error.UnpaidQuote,
+            .pending => return error.PendingQuote,
+            .issued => return error.IssuedQuote,
+            .paid => {},
+        }
+
+        var blinded_messages = try std.ArrayList(secp256k1.PublicKey).initCapacity(gpa, mint_request.outputs.len);
+        errdefer blinded_messages.deinit();
+
+        for (mint_request.outputs) |b| {
+            blinded_messages.appendAssumeCapacity(b.blinded_secret);
+        }
+
+        const _blind_signatures = try self.localstore.value.getBlindSignatures(gpa, blinded_messages.items);
+        defer _blind_signatures.deinit();
+
+        for (_blind_signatures.items) |bs| {
+            if (bs != null) {
+                std.log.debug("output has already been signed", .{});
+                std.log.debug("Mint {x} did not succeed returning quote to Paid state", .{mint_request.quote});
+
+                _ = try self.localstore
+                    .value.updateMintQuoteState(quote_id.bin, .paid);
+                return error.BlindedMessageAlreadySigned;
+            }
+        }
+
+        var blind_signatures = try std.ArrayList(core.nuts.BlindSignature).initCapacity(gpa, mint_request.outputs.len);
+        errdefer blind_signatures.deinit();
+
+        for (mint_request.outputs) |blinded_message| {
+            const blind_signature = try self.blindSign(gpa, blinded_message);
+            blind_signatures.appendAssumeCapacity(blind_signature);
+        }
+
+        try self.localstore
+            .value
+            .addBlindSignatures(blinded_messages.items, blind_signatures.items);
+
+        _ = try self.localstore.value.updateMintQuoteState(quote_id.bin, .issued);
+
+        std.log.debug("process_mint_request: issued {s}", .{quote_id.toHex(.lower)});
+
+        return .{
+            .signatures = try blind_signatures.toOwnedSlice(),
+        };
     }
 };
 

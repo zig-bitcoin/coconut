@@ -5,6 +5,8 @@ const std = @import("std");
 const zul = @import("zul");
 
 const CurrencyUnit = @import("../nut00/nut00.zig").CurrencyUnit;
+const BlindedMessage = @import("../nut00/nut00.zig").BlindedMessage;
+const BlindSignature = @import("../nut00/nut00.zig").BlindSignature;
 const Proof = @import("../nut00/nut00.zig").Proof;
 const PaymentMethod = @import("../nut00/nut00.zig").PaymentMethod;
 const MintQuote = @import("../../mint/types.zig").MintQuote;
@@ -190,4 +192,18 @@ pub const MintQuoteBolt11Response = struct {
             .paid = paid,
         };
     }
+};
+
+/// Mint response [NUT-04]
+pub const MintBolt11Response = struct {
+    /// Blinded Signatures
+    signatures: []const BlindSignature,
+};
+
+/// Mint request [NUT-04]
+pub const MintBolt11Request = struct {
+    /// Quote id
+    quote: [36]u8,
+    /// Outputs
+    outputs: []const BlindedMessage,
 };
