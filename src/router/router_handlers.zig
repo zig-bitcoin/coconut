@@ -173,3 +173,20 @@ pub fn getMeltBolt11Quote(
     };
     return try res.json(core.nuts.nut05.MeltQuoteBolt11Response.fromMeltQuote(quote), .{});
 }
+
+pub fn postSwap(
+    state: MintState,
+    req: *httpz.Request,
+    res: *httpz.Response,
+) !void {
+    errdefer std.log.debug("{any}", .{@errorReturnTrace()});
+
+    const payload = (try req.json(core.nuts.SwapRequest)) orelse return error.WrongRequest;
+
+    const swap_response = state.mint.processSwapRequest(res.arena, payload) catch |err| {
+        std.log.err("Could not process swap request: {}", .{err});
+        return err;
+    };
+
+    return try res.json(swap_response, .{});
+}

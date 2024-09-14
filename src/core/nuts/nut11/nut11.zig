@@ -391,7 +391,7 @@ pub fn signP2PKByProof(self: *Proof, allocator: std.mem.Allocator, secret_key: s
 }
 
 /// Verify P2PK signature on [Proof]
-pub fn verifyP2pkProof(self: *Proof, allocator: std.mem.Allocator) !void {
+pub fn verifyP2pkProof(self: *const Proof, allocator: std.mem.Allocator) !void {
     const secret = try Nut10Secret.fromSecret(self.secret, allocator);
     defer secret.deinit();
 
@@ -500,6 +500,66 @@ pub fn verifyP2pkBlindedMessages(self: *const BlindedMessage, pubkeys: []const s
     if (valid_sigs > required_sigs) return;
 
     return error.SpendConditionsNotMet;
+}
+
+/// Enforce Sigflag info
+pub const EnforceSigFlag = struct {
+    /// Sigflag required for proofs
+    sig_flag: SigFlag,
+    /// Pubkeys that can sign for proofs
+    pubkeys: std.AutoHashMap(secp256k1.PublicKey, void),
+    /// Number of sigs required for proofs
+    sigs_required: u64,
+
+    pub fn deinit(self: *EnforceSigFlag) void {
+        self.pubkeys.deinit();
+    }
+};
+
+/// Get the signature flag that should be enforced for a set of proofs and the public keys that signatures are valid for
+pub fn enforceSigFlag(gpa: std.mem.Allocator, proofs: []const Proof) !EnforceSigFlag {
+    var sig_flag = SigFlag.sig_inputs;
+    var pubkeys = std.AutoHashMap(secp256k1.PublicKey, void).init(gpa);
+    errdefer pubkeys.deinit();
+
+    var sigs_required: usize = 1;
+
+    for (proofs) |proof| {
+        if (Nut10Secret.fromSecret(proof.secret, gpa)) |secret| {
+            defer secret.deinit();
+
+            if (secret.value.kind == .p2pk) {
+                try pubkeys.put(secp256k1.PublicKey.fromString(secret.value.secret_data.data) catch continue, {});
+            }
+
+            if (secret.value.secret_data.tags) |tags| {
+                const conditions = try Conditions.fromTags(tags, gpa);
+                defer conditions.deinit();
+
+                if (conditions.sig_flag == .sig_all) {
+                    sig_flag = .sig_all;
+                }
+
+                if (conditions.num_sigs) |sigs| {
+                    if (sigs > sigs_required) {
+                        sigs_required = sigs;
+                    }
+                }
+
+                if (conditions.pubkeys) |pubs| {
+                    for (pubs.items) |p| {
+                        try pubkeys.put(p, {});
+                    }
+                }
+            }
+        } else |_| {}
+    }
+
+    return .{
+        .sig_flag = sig_flag,
+        .pubkeys = pubkeys,
+        .sigs_required = sigs_required,
+    };
 }
 
 test "test_secret_ser" {

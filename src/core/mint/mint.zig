@@ -696,6 +696,247 @@ pub const Mint = struct {
             .signatures = try blind_signatures.toOwnedSlice(),
         };
     }
+
+    /// Fee required for proof set
+    pub fn getProofsFee(self: *Mint, gpa: std.mem.Allocator, proofs: []const nuts.Proof) !core.amount.Amount {
+        var sum_fee: u64 = 0;
+
+        for (proofs) |proof| {
+            const input_fee_ppk = try self
+                .localstore
+                .value
+                .getKeysetInfo(gpa, proof.keyset_id) orelse return error.UnknownKeySet;
+            defer input_fee_ppk.deinit(gpa);
+
+            sum_fee += input_fee_ppk.input_fee_ppk;
+        }
+
+        const fee = (sum_fee + 999) / 1000;
+
+        return fee;
+    }
+
+    /// Check Tokens are not spent or pending
+    pub fn checkYsSpendable(
+        self: *Mint,
+        ys: []const secp256k1.PublicKey,
+        proof_state: nuts.nut07.State,
+    ) !void {
+        const proofs_state = try self
+            .localstore
+            .value
+            .updateProofsStates(self.allocator, ys, proof_state);
+        defer proofs_state.deinit();
+
+        for (proofs_state.items) |p|
+            if (p) |proof| switch (proof) {
+                .pending => return error.TokenPending,
+                .spent => return error.TokenAlreadySpent,
+                else => continue,
+            };
+    }
+
+    /// Verify [`Proof`] meets conditions and is signed
+    pub fn verifyProof(self: *Mint, proof: nuts.Proof) !void {
+        // Check if secret is a nut10 secret with conditions
+        if (nuts.nut10.Secret.fromSecret(proof.secret, self.allocator)) |secret| {
+            defer secret.deinit();
+
+            // Checks and verifes known secret kinds.
+            // If it is an unknown secret kind it will be treated as a normal secret.
+            // Spending conditions will **not** be check. It is up to the wallet to ensure
+            // only supported secret kinds are used as there is no way for the mint to enforce
+            // only signing supported secrets as they are blinded at that point.
+
+            switch (secret.value.kind) {
+                .p2pk => try nuts.nut11.verifyP2pkProof(&proof, self.allocator),
+                .htlc => try nuts.verifyHTLC(&proof, self.allocator),
+            }
+        } else |_| {}
+
+        try self.ensureKeysetLoaded(proof.keyset_id);
+
+        const sec_key = v: {
+            self.keysets.lock.lock();
+            defer self.keysets.lock.unlock();
+            const keyset = self.keysets.value.get(proof.keyset_id) orelse return error.UnknownKeySet;
+
+            break :v (keyset.keys.inner.get(proof.amount) orelse return error.AmountKey).secret_key;
+        };
+
+        try core.dhke.verifyMessage(self.secp_ctx, sec_key, proof.c, proof.secret.toBytes());
+    }
+
+    /// Process Swap
+    /// expecting allocator as arena
+    pub fn processSwapRequest(
+        self: *Mint,
+        arena: std.mem.Allocator,
+        swap_request: nuts.SwapRequest,
+    ) !nuts.SwapResponse {
+        var blinded_messages = try std.ArrayList(secp256k1.PublicKey).initCapacity(arena, swap_request.outputs.len);
+
+        for (swap_request.outputs) |b| {
+            blinded_messages.appendAssumeCapacity(b.blinded_secret);
+        }
+
+        const _blind_signatures = try self.localstore.value.getBlindSignatures(arena, blinded_messages.items);
+
+        for (_blind_signatures.items) |bs| {
+            if (bs != null) {
+                std.log.debug("output has already been signed", .{});
+
+                return error.BlindedMessageAlreadySigned;
+            }
+        }
+
+        const proofs_total = swap_request.inputAmount();
+        const output_total = swap_request.outputAmount();
+
+        const fee = try self.getProofsFee(arena, swap_request.inputs);
+
+        if (proofs_total < output_total + fee) {
+            std.log.info("Swap request without enough inputs: {}, outputs {}, fee {}", .{
+                proofs_total, output_total, fee,
+            });
+
+            return error.InsufficientInputs;
+        }
+
+        var input_ys = try std.ArrayList(secp256k1.PublicKey).initCapacity(arena, swap_request.inputs.len);
+
+        for (swap_request.inputs) |p| {
+            input_ys.appendAssumeCapacity(try core.dhke.hashToCurve(p.secret.toBytes()));
+        }
+
+        try self.localstore.value.addProofs(swap_request.inputs);
+        try self.checkYsSpendable(input_ys.items, .pending);
+
+        // Check that there are no duplicate proofs in request
+
+        {
+            var h = std.AutoHashMap(secp256k1.PublicKey, void).init(arena);
+
+            try h.ensureTotalCapacity(@intCast(input_ys.items.len));
+
+            for (input_ys.items) |i| {
+                if (h.fetchPutAssumeCapacity(i, {}) != null) {
+                    _ = try self.localstore.value.updateProofsStates(arena, input_ys.items, .unspent);
+                    return error.DuplicateProofs;
+                }
+            }
+        }
+
+        for (swap_request.inputs) |proof| {
+            self.verifyProof(proof) catch |err| {
+                std.log.info("Error verifying proof in swap", .{});
+                return err;
+            };
+        }
+
+        var input_keyset_ids = std.AutoHashMap(nuts.Id, void).init(arena);
+
+        try input_keyset_ids.ensureTotalCapacity(@intCast(swap_request.inputs.len));
+
+        for (swap_request.inputs) |p| input_keyset_ids.putAssumeCapacity(p.keyset_id, {});
+
+        var keyset_units = std.AutoHashMap(nuts.CurrencyUnit, void).init(arena);
+
+        {
+            var it = input_keyset_ids.keyIterator();
+
+            while (it.next()) |id| {
+                const keyset = try self.localstore.value.getKeysetInfo(arena, id.*) orelse {
+                    std.log.debug("Swap request with unknown keyset in inputs", .{});
+                    _ = try self.localstore.value.updateProofsStates(arena, input_ys.items, .unspent);
+                    continue;
+                };
+
+                try keyset_units.put(keyset.unit, {});
+            }
+        }
+
+        var output_keyset_ids = std.AutoHashMap(nuts.Id, void).init(arena);
+
+        try output_keyset_ids.ensureTotalCapacity(@intCast(swap_request.outputs.len));
+        for (swap_request.outputs) |p| output_keyset_ids.putAssumeCapacity(p.keyset_id, {});
+
+        {
+            var it = output_keyset_ids.keyIterator();
+            while (it.next()) |id| {
+                const keyset = try self.localstore.value.getKeysetInfo(arena, id.*) orelse {
+                    std.log.debug("Swap request with unknown keyset in outputs", .{});
+                    _ = try self.localstore.value.updateProofsStates(arena, input_ys.items, .unspent);
+                    continue;
+                };
+
+                keyset_units.putAssumeCapacity(keyset.unit, {});
+            }
+        }
+
+        // Check that all proofs are the same unit
+        // in the future it maybe possible to support multiple units but unsupported for
+        // now
+        if (keyset_units.count() > 1) {
+            std.log.err("Only one unit is allowed in request: {any}", .{keyset_units});
+
+            _ = try self.localstore
+                .value
+                .updateProofsStates(arena, input_ys.items, .unspent);
+
+            return error.MultipleUnits;
+        }
+
+        var enforced_sig_flag = try core.nuts.nut11.enforceSigFlag(arena, swap_request.inputs);
+
+        // let EnforceSigFlag {
+        //     sig_flag,
+        //     pubkeys,
+        //     sigs_required,
+        // } = enforce_sig_flag(swap_request.inputs.clone());
+
+        if (enforced_sig_flag.sig_flag == .sig_all) {
+            var _pubkeys = try std.ArrayList(secp256k1.PublicKey).initCapacity(arena, enforced_sig_flag.pubkeys.count());
+
+            var it = enforced_sig_flag.pubkeys.keyIterator();
+
+            while (it.next()) |key| {
+                _pubkeys.appendAssumeCapacity(key.*);
+            }
+
+            for (swap_request.outputs) |*blinded_message| {
+                nuts.nut11.verifyP2pkBlindedMessages(blinded_message, _pubkeys.items, enforced_sig_flag.sigs_required) catch |err| {
+                    std.log.info("Could not verify p2pk in swap request", .{});
+                    _ = try self.localstore
+                        .value
+                        .updateProofsStates(arena, input_ys.items, .unspent);
+                    return err;
+                };
+            }
+        }
+
+        var promises = try std.ArrayList(nuts.BlindSignature).initCapacity(arena, swap_request.outputs.len);
+
+        for (swap_request.outputs) |blinded_message| {
+            const blinded_signature = try self.blindSign(arena, blinded_message);
+            promises.appendAssumeCapacity(blinded_signature);
+        }
+
+        _ = try self.localstore
+            .value
+            .updateProofsStates(arena, input_ys.items, .spent);
+
+        try self.localstore
+            .value
+            .addBlindSignatures(
+            blinded_messages.items,
+            promises.items,
+        );
+
+        return .{
+            .signatures = promises.items,
+        };
+    }
 };
 
 /// Generate new [`MintKeySetInfo`] from path
