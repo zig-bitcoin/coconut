@@ -48,6 +48,24 @@ pub fn getCheckMintBolt11Quote(
     return try res.json(quote, .{});
 }
 
+pub fn getCheckMeltBolt11Quote(
+    state: MintState,
+    req: *httpz.Request,
+    res: *httpz.Response,
+) !void {
+    const quote_id_hex = req.param("quote_id") orelse return error.ExpectQuoteId;
+
+    const quote_id = try zul.UUID.parse(quote_id_hex);
+    const quote = state
+        .mint
+        .checkMeltQuote(res.arena, quote_id.bin) catch |err| {
+        std.log.debug("Could not check melt quote {any}: {any}", .{ quote_id, err });
+        return error.CheckMintQuoteFailed;
+    };
+
+    return try res.json(quote, .{});
+}
+
 pub fn postCheck(
     state: MintState,
     req: *httpz.Request,

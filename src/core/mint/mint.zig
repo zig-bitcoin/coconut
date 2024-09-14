@@ -11,6 +11,7 @@ const zul = @import("zul");
 const RWMutex = helper.RWMutex;
 const MintInfo = core.nuts.MintInfo;
 const MintQuoteBolt11Response = core.nuts.nut04.MintQuoteBolt11Response;
+const MeltQuoteBolt11Response = core.nuts.nut05.MeltQuoteBolt11Response;
 const MintQuoteState = core.nuts.nut04.QuoteState;
 const MintKeySet = core.nuts.MintKeySet;
 const CurrencyUnit = core.nuts.CurrencyUnit;
@@ -936,6 +937,16 @@ pub const Mint = struct {
         return .{
             .signatures = promises.items,
         };
+    }
+
+    /// Check melt quote status
+    pub fn checkMeltQuote(self: *Mint, gpa: std.mem.Allocator, quote_id: [16]u8) !MeltQuoteBolt11Response {
+        const quote = try self.localstore
+            .value
+            .getMeltQuote(gpa, quote_id) orelse return error.UnknownQuote;
+        errdefer quote.deinit();
+
+        return MeltQuoteBolt11Response.fromMeltQuote(quote);
     }
 };
 

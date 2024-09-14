@@ -50,6 +50,7 @@ pub fn createMintServer(
     router.get("/v1/keysets", router_handlers.getKeysets, .{});
     router.get("/v1/keys/:keyset_id", router_handlers.getKeysetPubkeys, .{});
     router.get("/v1/mint/quote/bolt11/:quote_id", router_handlers.getCheckMintBolt11Quote, .{});
+    router.get("/v1/melt/quote/bolt11/:quote_id", router_handlers.getCheckMeltBolt11Quote, .{});
     router.post("/v1/checkstate", router_handlers.postCheck, .{});
     router.get("/v1/info", router_handlers.getMintInfo, .{});
 
