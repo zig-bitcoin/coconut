@@ -10,7 +10,7 @@ const zul = @import("zul");
 /// Mint Quote Info
 pub const MintQuote = struct {
     /// Quote id
-    id: [16]u8,
+    id: zul.UUID,
     /// Mint Url
     mint_url: []const u8,
     /// Amount of quote
@@ -51,7 +51,7 @@ pub const MintQuote = struct {
 
         const mint_quote: MintQuote = .{
             .mint_url = mint_url,
-            .id = id.bin,
+            .id = id,
             .amount = amount,
             .unit = unit,
             .request = request,
@@ -91,7 +91,7 @@ pub const MintQuote = struct {
 /// Melt Quote Info
 pub const MeltQuote = struct {
     /// Quote id
-    id: [16]u8,
+    id: zul.UUID,
     /// Quote unit
     unit: CurrencyUnit,
     /// Quote amount
@@ -121,7 +121,7 @@ pub const MeltQuote = struct {
         const id = zul.UUID.v4();
 
         return .{
-            .id = id.bin,
+            .id = id,
             .amount = amount,
             .unit = unit,
             .request = request,

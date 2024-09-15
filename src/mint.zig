@@ -216,6 +216,7 @@ pub fn main() !void {
         nuts.nut12.supported = true;
         nuts.nut14.supported = true;
     }
+    defer nuts.deinit(gpa.allocator());
 
     const mint_info = MintInfo{
         .name = parsed_settings.value.mint_info.name,

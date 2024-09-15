@@ -123,7 +123,7 @@ pub const MintQuoteBolt11Response = struct {
     pub fn fromMintQuote(mint_quote: MintQuote) !MintQuoteBolt11Response {
         const paid = mint_quote.state == .paid;
         return .{
-            .quote = try zul.UUID.binToHex(&mint_quote.id, .lower),
+            .quote = mint_quote.id.toHex(.lower),
             .request = mint_quote.request,
             .paid = paid,
             .state = mint_quote.state,

@@ -78,6 +78,7 @@ pub const Bolt11Invoice = struct {
     pub fn fromSigned(signed_invoice: SignedRawBolt11Invoice) !Self {
         const invoice = Bolt11Invoice{ .signed_invoice = signed_invoice };
 
+        // TODO
         //       invoice.check_field_counts()?;
         // invoice.check_feature_bits()?;
         // invoice.check_signature()?;

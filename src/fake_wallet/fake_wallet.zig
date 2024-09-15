@@ -142,7 +142,7 @@ pub const FakeWallet = struct {
             .payment_preimage = &.{},
             .payment_hash = &.{}, // empty slice - safe to free
             .status = .paid,
-            .total_spend = melt_quote.amount,
+            .total_spent = melt_quote.amount,
         };
     }
 

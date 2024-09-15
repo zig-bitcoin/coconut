@@ -2,6 +2,7 @@ const std = @import("std");
 const httpz = @import("httpz");
 const core = @import("../core/lib.zig");
 const zul = @import("zul");
+const ln_invoice = @import("../lightning_invoices/invoice.zig");
 
 const FakeWallet = @import("../fake_wallet/fake_wallet.zig").FakeWallet;
 const MintState = @import("router.zig").MintState;
@@ -40,7 +41,7 @@ pub fn getCheckMintBolt11Quote(
     const quote_id = try zul.UUID.parse(quote_id_hex);
     const quote = state
         .mint
-        .checkMintQuote(res.arena, quote_id.bin) catch |err| {
+        .checkMintQuote(res.arena, quote_id) catch |err| {
         std.log.debug("Could not check mint quote {any}: {any}", .{ quote_id, err });
         return error.CheckMintQuoteFailed;
     };
@@ -58,7 +59,7 @@ pub fn getCheckMeltBolt11Quote(
     const quote_id = try zul.UUID.parse(quote_id_hex);
     const quote = state
         .mint
-        .checkMeltQuote(res.arena, quote_id.bin) catch |err| {
+        .checkMeltQuote(res.arena, quote_id) catch |err| {
         std.log.debug("Could not check melt quote {any}: {any}", .{ quote_id, err });
         return error.CheckMintQuoteFailed;
     };
@@ -110,7 +111,7 @@ pub fn getMintBolt11Quote(
 
     const quote_expiry = @as(u64, @intCast(std.time.timestamp())) + state.quote_ttl;
 
-    const create_invoice_response = ln.createInvoice(res.arena, amount, payload.unit, "", quote_expiry) catch |err| {
+    const create_invoice_response = ln.createInvoice(res.arena, amount, ln.getSettings().unit, "", quote_expiry) catch |err| {
         std.log.err("could not create invoice: {any}", .{err});
         return error.InvalidPaymentRequest;
     };
@@ -159,6 +160,8 @@ pub fn getMeltBolt11Quote(
     req: *httpz.Request,
     res: *httpz.Response,
 ) !void {
+    errdefer std.log.debug("{any}", .{@errorReturnTrace()});
+
     const payload = (try req.json(core.nuts.nut05.MeltQuoteBolt11Request)) orelse return error.WrongRequest;
 
     const ln: FakeWallet = state.ln.get(LnKey.init(payload.unit, .bolt11)) orelse {
@@ -189,7 +192,9 @@ pub fn getMeltBolt11Quote(
         std.log.err("Could not create melt quote: {any}", .{err});
         return error.InternalError;
     };
-    return try res.json(core.nuts.nut05.MeltQuoteBolt11Response.fromMeltQuote(quote), .{});
+    return try res.json(core.nuts.nut05.MeltQuoteBolt11Response.fromMeltQuote(quote), .{
+        .emit_null_optional_fields = false,
+    });
 }
 
 pub fn postSwap(
@@ -207,4 +212,158 @@ pub fn postSwap(
     };
 
     return try res.json(swap_response, .{});
+}
+
+pub fn postMeltBolt11(
+    state: MintState,
+    req: *httpz.Request,
+    res: *httpz.Response,
+) !void {
+    const payload = try req.json(core.nuts.nut05.MeltBolt11Request) orelse return error.WrongRequest;
+
+    const quote = state.mint.verifyMeltRequest(res.arena, payload) catch |err| {
+        std.log.debug("Error attempting to verify melt quote: {any}", .{err});
+
+        state.mint.processUnpaidMelt(payload) catch |e| {
+            std.log.err("Could not reset melt quote state: {any}", .{e});
+        };
+
+        return error.MeltRequestInvalid;
+    };
+
+    // Check to see if there is a corresponding mint quote for a melt.
+    // In this case the mint can settle the payment internally and no ln payment is needed
+    const mint_quote = state.mint
+        .localstore
+        .value
+        .getMintQuoteByRequest(res.arena, quote.request) catch |err| {
+        std.log.debug("Error attempting to get mint quote: {}", .{err});
+
+        state.mint.processUnpaidMelt(payload) catch |e| {
+            std.log.err("Could not reset melt quote state: {}", .{e});
+        };
+        return error.DatabaseError;
+    };
+
+    const inputs_amount_quote_unit = payload.proofsAmount();
+
+    const preimage: ?[]const u8, const amount_spent_quote_unit = if (mint_quote) |_mint_quote| v: {
+        if (_mint_quote.state == .issued or _mint_quote.state == .paid) return error.RequestAlreadyPaid;
+        var new_mint_quote = _mint_quote;
+
+        if (new_mint_quote.amount > inputs_amount_quote_unit) {
+            std.log.debug("Not enough inuts provided: {} needed {}", .{
+                inputs_amount_quote_unit,
+                new_mint_quote.amount,
+            });
+
+            state.mint.processUnpaidMelt(payload) catch |e| {
+                std.log.err("Could not reset melt quote state: {}", .{e});
+            };
+
+            return error.InsufficientInputProofs;
+        }
+        new_mint_quote.state = .paid;
+
+        const amount = quote.amount;
+
+        state.mint.updateMintQuote(new_mint_quote) catch {
+            state.mint.processUnpaidMelt(payload) catch |err| {
+                std.log.err("Could not reset melt quote state: {}", .{err});
+            };
+
+            return error.DatabaseError;
+        };
+
+        break :v .{ null, amount };
+    } else v: {
+        const invoice = ln_invoice.Bolt11Invoice.fromStr(res.arena, quote.request) catch |err| {
+            std.log.err("Melt quote has invalid payment request {}", .{err});
+            state.mint.processUnpaidMelt(payload) catch |e| {
+                std.log.err("Could not reset melt quote state: {}", .{e});
+            };
+            return error.InvalidPaymentRequest;
+        };
+
+        var partial_amount: ?core.amount.Amount = null;
+
+        // If the quote unit is SAT or MSAT we can check that the expected fees are provided.
+        // We also check if the quote is less then the invoice amount in the case that it is a mmp
+        // However, if the quote id not of a bitcoin unit we cannot do these checks as the mint
+        // is unaware of a conversion rate. In this case it is assumed that the quote is correct
+        // and the mint should pay the full invoice amount if inputs > then quote.amount are included.
+        // This is checked in the verify_melt method.
+        if (quote.unit == .msat or quote.unit == .sat) {
+            const quote_msats = try core.lightning.toUnit(quote.amount, quote.unit, .msat);
+
+            const invoice_amount_msats = if (invoice.amountMilliSatoshis()) |amount| amount else {
+                state.mint.processUnpaidMelt(payload) catch |e| {
+                    std.log.err("Could not reset melt quote state: {}", .{e});
+                };
+
+                return error.InvoiceAmountUndefined;
+            };
+
+            partial_amount = if (invoice_amount_msats > quote_msats) am: {
+                const partial_msats: u64 = invoice_amount_msats - quote_msats;
+
+                break :am try core.lightning.toUnit(partial_msats, .msat, quote.unit);
+            } else null;
+
+            const amount_to_pay = if (partial_amount) |_amount| _amount else core.lightning.toUnit(invoice_amount_msats, .msat, quote.unit) catch return error.UnsupportedUnit;
+
+            if (amount_to_pay + quote.fee_reserve > inputs_amount_quote_unit) {
+                std.log.debug("Not enough inuts provided: {} msats needed {} msats", .{ inputs_amount_quote_unit, amount_to_pay });
+
+                state.mint.processUnpaidMelt(payload) catch |e| {
+                    std.log.err("Could not reset melt quote state: {}", .{e});
+                };
+
+                return error.InsufficientInputProofs;
+            }
+        }
+
+        const ln: FakeWallet = state.ln.get(.{ .unit = quote.unit, .method = .bolt11 }) orelse {
+            std.log.debug("Could not get ln backend for {}, bolt11 ", .{quote.unit});
+
+            state.mint.processUnpaidMelt(payload) catch |e| {
+                std.log.err("Could not reset melt quote state: {}", .{e});
+            };
+
+            return error.UnsupportedUnit;
+        };
+
+        const pre = ln.payInvoice(res.arena, quote, partial_amount, quote.fee_reserve) catch |err| {
+            std.log.err("Could not pay invoice: {}", .{err});
+
+            state.mint.processUnpaidMelt(payload) catch |e| {
+                std.log.err("Could not reset melt quote state: {}", .{e});
+            };
+
+            // TODO check invoice already paid
+            //         let err = match err {
+            //             cdk::cdk_lightning::Error::InvoiceAlreadyPaid => Error::RequestAlreadyPaid,
+            //             _ => Error::PaymentFailed,
+            //         };
+            return err;
+        };
+
+        const amount_spent = core.lightning.toUnit(pre.total_spent, ln.getSettings().unit, quote.unit) catch return error.UnsupportedUnit;
+
+        break :v .{
+            pre.payment_preimage, amount_spent,
+        };
+    };
+
+    const result = state.mint.processMeltRequest(
+        res.arena,
+        payload,
+        preimage,
+        amount_spent_quote_unit,
+    ) catch |err| {
+        std.log.err("Could not process melt request: {}", .{err});
+        return err;
+    };
+
+    return try res.json(result, .{});
 }

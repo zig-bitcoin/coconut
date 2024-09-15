@@ -50,6 +50,19 @@ pub const QuoteState = enum {
 
         return kv.get(s) orelse return error.UnknownState;
     }
+
+    pub fn jsonStringify(self: QuoteState, out: anytype) !void {
+        try out.write(self.toString());
+    }
+
+    pub fn jsonParse(allocator: std.mem.Allocator, source: anytype, _: std.json.ParseOptions) !QuoteState {
+        const state = try std.json.innerParse([]const u8, allocator, source, .{});
+
+        return QuoteState.fromString(state) catch {
+            std.log.debug("wrong state value: {s}", .{state});
+            return error.UnexpectedError;
+        };
+    }
 };
 
 /// Melt quote response [NUT-05]
@@ -77,7 +90,7 @@ pub const MeltQuoteBolt11Response = struct {
         const paid = melt_quote.state == .paid;
 
         return .{
-            .quote = zul.UUID.binToHex(&melt_quote.id, .lower) catch unreachable,
+            .quote = melt_quote.id.toHex(.lower),
             .amount = melt_quote.amount,
             .fee_reserve = melt_quote.fee_reserve,
             .paid = paid,

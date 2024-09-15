@@ -361,7 +361,7 @@ pub const Mint = struct {
 
     /// Check mint quote
     /// caller own result and should deinit
-    pub fn checkMintQuote(self: *Mint, allocator: std.mem.Allocator, quote_id: [16]u8) !MintQuoteBolt11Response {
+    pub fn checkMintQuote(self: *Mint, allocator: std.mem.Allocator, quote_id: zul.UUID) !MintQuoteBolt11Response {
         const quote = v: {
             self.localstore.lock.lockShared();
             defer self.localstore.lock.unlockShared();
@@ -379,7 +379,7 @@ pub const Mint = struct {
         };
 
         const result = MintQuoteBolt11Response{
-            .quote = try zul.UUID.binToHex(&quote.id, .lower),
+            .quote = quote.id.toHex(.lower),
             .request = quote.request,
             .paid = paid,
             .state = state,
@@ -646,7 +646,8 @@ pub const Mint = struct {
         mint_request: core.nuts.nut04.MintBolt11Request,
     ) !core.nuts.nut04.MintBolt11Response {
         const quote_id = try zul.UUID.parse(&mint_request.quote);
-        const state = try self.localstore.value.updateMintQuoteState(quote_id.bin, .pending);
+
+        const state = try self.localstore.value.updateMintQuoteState(quote_id, .pending);
 
         std.log.debug("process_mitn_request: quote_id {s}", .{quote_id.toHex(.lower)});
         switch (state) {
@@ -672,7 +673,7 @@ pub const Mint = struct {
                 std.log.debug("Mint {x} did not succeed returning quote to Paid state", .{mint_request.quote});
 
                 _ = try self.localstore
-                    .value.updateMintQuoteState(quote_id.bin, .paid);
+                    .value.updateMintQuoteState(quote_id, .paid);
                 return error.BlindedMessageAlreadySigned;
             }
         }
@@ -689,7 +690,7 @@ pub const Mint = struct {
             .value
             .addBlindSignatures(blinded_messages.items, blind_signatures.items);
 
-        _ = try self.localstore.value.updateMintQuoteState(quote_id.bin, .issued);
+        _ = try self.localstore.value.updateMintQuoteState(quote_id, .issued);
 
         std.log.debug("process_mint_request: issued {s}", .{quote_id.toHex(.lower)});
 
@@ -940,13 +941,283 @@ pub const Mint = struct {
     }
 
     /// Check melt quote status
-    pub fn checkMeltQuote(self: *Mint, gpa: std.mem.Allocator, quote_id: [16]u8) !MeltQuoteBolt11Response {
+    pub fn checkMeltQuote(self: *Mint, gpa: std.mem.Allocator, quote_id: zul.UUID) !MeltQuoteBolt11Response {
         const quote = try self.localstore
             .value
             .getMeltQuote(gpa, quote_id) orelse return error.UnknownQuote;
         errdefer quote.deinit();
 
         return MeltQuoteBolt11Response.fromMeltQuote(quote);
+    }
+
+    /// Verify melt request is valid
+    pub fn verifyMeltRequest(
+        self: *Mint,
+        gpa: std.mem.Allocator,
+        melt_request: nuts.nut05.MeltBolt11Request,
+    ) !MeltQuote {
+        const quote_id = try zul.UUID.parse(melt_request.quote);
+        const state = try self
+            .localstore
+            .value
+            .updateMeltQuoteState(quote_id, .pending);
+
+        switch (state) {
+            .unpaid => {},
+            .pending => return error.PendingQuote,
+            .paid => return error.PaidQuote,
+        }
+
+        var ys = try std.ArrayList(secp256k1.PublicKey).initCapacity(gpa, melt_request.inputs.len);
+        defer ys.deinit();
+
+        for (melt_request.inputs) |p| {
+            ys.appendAssumeCapacity(try core.dhke.hashToCurve(p.secret.toBytes()));
+        }
+
+        // Ensure proofs are unique and not being double spent
+        {
+            var h = std.AutoHashMap(secp256k1.PublicKey, void).init(gpa);
+            defer h.deinit();
+
+            for (ys.items) |pk| try h.put(pk, {});
+            if (h.count() != melt_request.inputs.len) return error.DuplicateProofs;
+        }
+
+        try self.localstore
+            .value
+            .addProofs(melt_request.inputs);
+
+        try self.checkYsSpendable(ys.items, .pending);
+
+        for (melt_request.inputs) |proof| {
+            try self.verifyProof(proof);
+        }
+
+        const quote = try self.localstore
+            .value
+            .getMeltQuote(gpa, quote_id) orelse return error.UnknownQuote;
+        errdefer quote.deinit(gpa);
+
+        const proofs_total = melt_request.proofsAmount();
+
+        const fee = try self.getProofsFee(gpa, melt_request.inputs);
+
+        const required_total = quote.amount + quote.fee_reserve + fee;
+
+        if (proofs_total < required_total) {
+            std.log.info(
+                "Swap request without enough inputs: {any}, quote amount {any}, fee_reserve: {any} fee {any}",
+                .{
+                    proofs_total,
+                    quote.amount,
+                    quote.fee_reserve,
+                    fee,
+                },
+            );
+            return error.InsufficientInputs;
+        }
+
+        var input_keyset_ids = std.AutoHashMap(nuts.Id, void).init(gpa);
+        defer input_keyset_ids.deinit();
+
+        {
+            for (melt_request.inputs) |p| {
+                try input_keyset_ids.put(p.keyset_id, {});
+            }
+        }
+
+        var keyset_units = std.AutoHashMap(nuts.CurrencyUnit, void).init(gpa);
+        defer keyset_units.deinit();
+        {
+            var it = input_keyset_ids.keyIterator();
+
+            while (it.next()) |id| {
+                const keyset = try self.localstore
+                    .value
+                    .getKeysetInfo(gpa, id.*) orelse return error.UnknownKeySet;
+                defer keyset.deinit(gpa);
+
+                try keyset_units.put(keyset.unit, {});
+            }
+        }
+
+        var enforce_sig_flag = try nuts.nut11.enforceSigFlag(gpa, melt_request.inputs);
+        defer enforce_sig_flag.deinit();
+
+        if (enforce_sig_flag.sig_flag == .sig_all) return error.SigAllUsedInMelt;
+
+        if (melt_request.outputs) |outputs| {
+            var output_keysets_ids = std.AutoHashMap(nuts.Id, void).init(gpa);
+            defer output_keysets_ids.deinit();
+
+            for (outputs) |b| {
+                try output_keysets_ids.put(b.keyset_id, {});
+            }
+
+            {
+                var it = output_keysets_ids.keyIterator();
+                while (it.next()) |id| {
+                    var keyset = try self.localstore
+                        .value
+                        .getKeysetInfo(gpa, id.*) orelse return error.UnknownKeySet;
+                    defer keyset.deinit(gpa);
+
+                    // Get the active keyset for the unit
+                    const active_keyset_id = self.localstore
+                        .value
+                        .getActiveKeysetId(keyset.unit) orelse return error.InactiveKeyset;
+
+                    // Check output is for current active keyset
+                    if (!(std.meta.eql(id.*, active_keyset_id))) {
+                        return error.InactiveKeyset;
+                    }
+
+                    try keyset_units.put(keyset.unit, {});
+                }
+            }
+        }
+
+        // Check that all input and output proofs are the same unit
+        if (keyset_units.count() > 1) {
+            return error.MultipleUnits;
+        }
+
+        std.log.debug("Verified melt quote: {s}", .{melt_request.quote});
+
+        return quote;
+    }
+
+    /// Process unpaid melt request
+    /// In the event that a melt request fails and the lighthing payment is not made
+    /// The [`Proofs`] should be returned to an unspent state and the quote should be unpaid
+    pub fn processUnpaidMelt(self: *Mint, melt_request: core.nuts.nut05.MeltBolt11Request) !void {
+        var arena = std.heap.ArenaAllocator.init(self.allocator);
+        defer arena.deinit();
+
+        var input_ys = try std.ArrayList(secp256k1.PublicKey).initCapacity(arena.allocator(), melt_request.inputs.len);
+        defer input_ys.deinit();
+
+        for (melt_request.inputs) |p| input_ys.appendAssumeCapacity(try core.dhke.hashToCurve(p.secret.toBytes()));
+
+        _ = try self.localstore
+            .value
+            .updateProofsStates(arena.allocator(), input_ys.items, .unspent);
+
+        _ = try self.localstore
+            .value
+            .updateMeltQuoteState(try zul.UUID.parse(melt_request.quote), .unpaid);
+    }
+
+    /// Update mint quote
+    pub fn updateMintQuote(self: *Mint, quote: MintQuote) !void {
+        try self.localstore.value.addMintQuote(quote);
+    }
+
+    /// Process melt request marking [`Proofs`] as spent
+    /// The melt request must be verifyed using [`Self::verify_melt_request`] before calling [`Self::process_melt_request`]
+    pub fn processMeltRequest(
+        self: *Mint,
+        arena: std.mem.Allocator,
+        melt_request: nuts.nut05.MeltBolt11Request,
+        payment_preimage: ?[]const u8,
+        total_spent: core.amount.Amount,
+    ) !core.nuts.nut05.MeltQuoteBolt11Response {
+        std.log.debug("Processing melt quote: {s}", .{melt_request.quote});
+
+        const quote_id = try zul.UUID.parse(melt_request.quote);
+
+        const quote = try self
+            .localstore
+            .value
+            .getMeltQuote(arena, quote_id) orelse return error.UnknownQuote;
+
+        var input_ys = std.ArrayList(secp256k1.PublicKey).init(arena);
+
+        for (melt_request.inputs) |p| try input_ys.append(try core.dhke.hashToCurve(p.secret.toBytes()));
+
+        if (self.localstore
+            .value
+            .updateProofsStates(arena, input_ys.items, .spent)) |states| states.deinit() else |err| return err;
+
+        _ = try self.localstore
+            .value
+            .updateMeltQuoteState(quote_id, .paid);
+
+        var change: ?std.ArrayList(core.nuts.BlindSignature) = null;
+
+        // Check if there is change to return
+        if (melt_request.proofsAmount() > total_spent) {
+            // Check if wallet provided change outputs
+            if (melt_request.outputs) |outputs| {
+                var blinded_messages = try std.ArrayList(secp256k1.PublicKey).initCapacity(arena, outputs.len);
+                defer blinded_messages.deinit();
+
+                for (outputs) |o| blinded_messages.appendAssumeCapacity(o.blinded_secret);
+
+                if ((if (self.localstore
+                    .value
+                    .getBlindSignatures(arena, blinded_messages.items)) |bm|
+                    bm.getLastOrNull()
+                else |err|
+                    return err) != null)
+                {
+                    std.log.info("Output has already been signed", .{});
+                    return error.BlindedMessageAlreadySigned;
+                }
+
+                const change_target = melt_request.proofsAmount() - total_spent;
+                const amounts = try core.amount.split(change_target, arena);
+                var change_sigs = try std.ArrayList(nuts.BlindSignature).initCapacity(arena, amounts.items.len);
+
+                if (outputs.len < amounts.items.len) {
+                    std.log.debug("Providing change requires {} blinded messages, but only {} provided", .{ amounts.items.len, outputs.len });
+                    // In the case that not enough outputs are provided to return all change
+                    // Reverse sort the amounts so that the most amount of change possible is
+                    // returned. The rest is burnt
+                    std.sort.block(u64, amounts.items, {}, (struct {
+                        fn compare(_: void, a: u64, b: u64) bool {
+                            return b < a;
+                        }
+                    }).compare);
+                }
+
+                const _outputs = try arena.dupe(nuts.BlindedMessage, outputs);
+
+                const zip_len = @min(amounts.items.len, _outputs.len);
+
+                for (amounts.items[0..zip_len], _outputs[0..zip_len]) |amount, *blinded_message| {
+                    blinded_message.amount = amount;
+
+                    const blinded_signature = try self.blindSign(
+                        arena,
+                        blinded_message.*,
+                    );
+
+                    try change_sigs.append(blinded_signature);
+                }
+
+                try self.localstore
+                    .value
+                    .addBlindSignatures(
+                    blinded_messages.items,
+                    change_sigs.items,
+                );
+
+                change = change_sigs;
+            }
+        }
+
+        return .{
+            .amount = quote.amount,
+            .paid = true,
+            .payment_preimage = payment_preimage,
+            .change = if (change) |c| c.items else null,
+            .quote = quote.id.toHex(.lower),
+            .fee_reserve = quote.fee_reserve,
+            .state = .paid,
+            .expiry = quote.expiry,
+        };
     }
 };
 

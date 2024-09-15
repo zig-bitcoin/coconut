@@ -40,8 +40,8 @@
             .hash = "1220bcc68967188de7ad5d520a4629c0d1e169c111d87e6978a3c128de5ec2b6bdd0",
         },
         .@"bitcoin-primitives" = .{
-            .url = "git+https://github.com/zig-bitcoin/bitcoin-primitives#b51ffa5b67e376a102bde0250e4235bc66e32c2e",
-            .hash = "1220ae99270542861a0f2cc5d9b0b2df2f11c6bd2ce431c9067c5c958cd36f66c948",
+            .url = "git+https://github.com/zig-bitcoin/bitcoin-primitives#1b8e7c241a1f7fc97aca8c0f953b36c0af2eea2a",
+            .hash = "1220c6f7e963fbc93d0095ab7ada0274aebb2e72d60a93e03ae5cfd6db552e1dc522",
         },
         .@"zig-toml" = .{
             .url = "git+https://github.com/sam701/zig-toml#78c8512273ab83c0a71f1063d9049ce7abdb70b0",
