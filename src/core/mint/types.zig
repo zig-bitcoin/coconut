@@ -4,7 +4,8 @@ const amount_lib = @import("../lib.zig").amount;
 const CurrencyUnit = @import("../lib.zig").nuts.CurrencyUnit;
 const MintQuoteState = @import("../lib.zig").nuts.nut04.QuoteState;
 const MeltQuoteState = @import("../lib.zig").nuts.nut05.QuoteState;
-const secp256k1 = @import("secp256k1");
+const bitcoin_primitives = @import("bitcoin-primitives");
+const secp256k1 = bitcoin_primitives.secp256k1;
 const zul = @import("zul");
 
 /// Mint Quote Info
@@ -179,6 +180,8 @@ pub const MeltQuote = struct {
 };
 
 pub const ProofInfo = struct {
+    const Self = @This();
+
     /// Proof
     proof: nuts.Proof,
     /// y
@@ -209,4 +212,119 @@ pub const ProofInfo = struct {
             .unit = unit,
         };
     }
+
+    pub fn matchesConditions(
+        self: *Self,
+        mint_url: ?[]u8,
+        currency_unit: ?nuts.CurrencyUnit,
+        state: ?[]const nuts.nut07.State,
+        spending_conditions: ?[]const nuts.nut11.SpendingConditions,
+    ) bool {
+        if (mint_url) |url| {
+            if (std.mem.eql(u8, url, self.mint_url) == false) {
+                return false;
+            }
+        }
+
+        if (currency_unit) |unit| {
+            if (unit == self.unit) {
+                return false;
+            }
+        }
+
+        if (state) |s| {
+            if (!containsState(s, self.state)) {
+                return false;
+            }
+        }
+
+        if (spending_conditions) |conds| {
+            if (self.spending_condition) |spending_condition| {
+                switch (spending_condition) {
+                    else => {
+                        if (!containsCondition(conds, spending_condition)) {
+                            return false;
+                        }
+                    }
+                }
+            } else {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    fn containsState(states: []const nuts.nut07.State, state: nuts.nut07.State) bool {
+        for (states) |s| {
+            if (s == state) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    fn containsCondition(conditions: []const nuts.nut11.SpendingConditions, cond: nuts.nut11.SpendingConditions) bool {
+        for (conditions) |c| {
+            if (compareSpendingConditions(c, cond) == true) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    pub fn compareSpendingConditions(a: nuts.nut11.SpendingConditions, b: nuts.nut11.SpendingConditions) bool {
+        if (compareTag(a, b) == false) {
+            return false;
+        }
+
+        switch (a) {
+            nuts.nut11.SpendingConditions.p2pk => |a_p2pk| {
+                const b_p2pk = b.p2pk;
+                if (!secp256k1.PublicKey.eql(a_p2pk.data, b_p2pk.data)) {
+                    return false;
+                }
+                if (!compareConditions(a_p2pk.conditions, b_p2pk.conditions)) {
+                    return false;
+                }
+            },
+            nuts.nut11.SpendingConditions.htlc => |a_htlc| {
+                const b_htlc = b.htlc;
+                if (!std.mem.eql(u8, &a_htlc.data, &b_htlc.data)) {
+                    return false;
+                }
+                if (!compareConditions(a_htlc.conditions, b_htlc.conditions)) {
+                    return false;
+                }
+            },
+        }
+
+        return true;
+    }
+
+    fn compareTag(a: nuts.nut11.SpendingConditions, b: nuts.nut11.SpendingConditions) bool {
+        return switch (a) {
+        nuts.nut11.SpendingConditions.p2pk => switch (b) {
+            nuts.nut11.SpendingConditions.p2pk => true,
+            else => false,
+        },
+        nuts.nut11.SpendingConditions.htlc => switch (b) {
+            nuts.nut11.SpendingConditions.htlc => true,
+            else => false,
+        },
+    };
+    }
+
+    fn compareConditions(a: ?nuts.nut11.Conditions, b: ?nuts.nut11.Conditions) bool {
+        if (a == null and b == null) {
+            return true;
+        }
+        if (a == null or b == null) {
+            return false;
+        }
+
+        return true;
+    }
+
+
 };
