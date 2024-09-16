@@ -9,6 +9,7 @@ const builtin = @import("builtin");
 const config = @import("mintd/config.zig");
 const clap = @import("clap");
 
+const MintLightning = core.lightning.MintLightning;
 const MintState = @import("router/router.zig").MintState;
 const LnKey = @import("router/router.zig").LnKey;
 const FakeWallet = @import("fake_wallet/fake_wallet.zig").FakeWallet;
@@ -18,8 +19,16 @@ const MintDatabase = core.mint_memory.MintMemoryDatabase;
 const ContactInfo = core.nuts.ContactInfo;
 const MintVersion = core.nuts.MintVersion;
 const MintInfo = core.nuts.MintInfo;
+const Channel = @import("channels/channels.zig").Channel;
 
 const default_quote_ttl_secs: u64 = 1800;
+
+/// Update mint quote when called for a paid invoice
+fn handlePaidInvoice(mint: *Mint, request_lookup_id: []const u8) !void {
+    std.log.debug("Invoice with lookup id paid: {s}", .{request_lookup_id});
+
+    try mint.payMintQuoteForRequestId(request_lookup_id);
+}
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{
@@ -127,6 +136,7 @@ pub fn main() !void {
     var ln_backends = router.LnBackendsMap.init(gpa.allocator());
     defer {
         var it = ln_backends.valueIterator();
+
         while (it.next()) |v| {
             v.deinit();
         }
@@ -145,7 +155,10 @@ pub fn main() !void {
                 var wallet = try FakeWallet.init(gpa.allocator(), fee_reserve, .{}, .{});
                 errdefer wallet.deinit();
 
-                try ln_backends.put(ln_key, wallet);
+                const ln_mint = try wallet.toMintLightning(gpa.allocator());
+                errdefer ln_mint.deinit();
+
+                try ln_backends.put(ln_key, ln_mint);
 
                 try supported_units.put(unit, .{ input_fee_ppk, 64 });
             }
@@ -156,7 +169,59 @@ pub fn main() !void {
         },
     }
 
+    var nuts = core.nuts.Nuts{};
     // TODO nuts settings
+    {
+        var nut04 = try std.ArrayList(core.nuts.nut04.MintMethodSettings).initCapacity(gpa.allocator(), ln_backends.count());
+        errdefer nut04.deinit();
+        var nut05 = try std.ArrayList(core.nuts.nut05.MeltMethodSettings).initCapacity(gpa.allocator(), ln_backends.count());
+        errdefer nut05.deinit();
+
+        var mpp = try std.ArrayList(core.nuts.nut15.MppMethodSettings).initCapacity(gpa.allocator(), ln_backends.count());
+        errdefer mpp.deinit();
+
+        var it = ln_backends.iterator();
+
+        while (it.next()) |ln_entry| {
+            const settings = ln_entry.value_ptr.getSettings();
+
+            const m = core.nuts.nut15.MppMethodSettings{
+                .method = ln_entry.key_ptr.method,
+                .unit = ln_entry.key_ptr.unit,
+                .mpp = settings.mpp,
+            };
+
+            const n4 = core.nuts.nut04.MintMethodSettings{
+                .method = ln_entry.key_ptr.method,
+                .unit = ln_entry.key_ptr.unit,
+                .min_amount = settings.mint_settings.min_amount,
+                .max_amount = settings.mint_settings.max_amount,
+            };
+            const n5 = core.nuts.nut05.MeltMethodSettings{
+                .method = ln_entry.key_ptr.method,
+                .unit = ln_entry.key_ptr.unit,
+                .min_amount = settings.melt_settings.min_amount,
+                .max_amount = settings.melt_settings.max_amount,
+            };
+
+            nut04.appendAssumeCapacity(n4);
+            nut05.appendAssumeCapacity(n5);
+            mpp.appendAssumeCapacity(m);
+        }
+
+        nuts.nut04.methods = try nut04.toOwnedSlice();
+        nuts.nut05.methods = try nut05.toOwnedSlice();
+        nuts.nut15.methods = try mpp.toOwnedSlice();
+
+        nuts.nut07.supported = true;
+        nuts.nut08.supported = true;
+        nuts.nut09.supported = true;
+        nuts.nut10.supported = true;
+        nuts.nut11.supported = true;
+        nuts.nut12.supported = true;
+        nuts.nut14.supported = true;
+    }
+    defer nuts.deinit(gpa.allocator());
 
     const mint_info = MintInfo{
         .name = parsed_settings.value.mint_info.name,
@@ -167,6 +232,7 @@ pub fn main() !void {
         .pubkey = parsed_settings.value.mint_info.pubkey,
         .mint_icon_url = parsed_settings.value.mint_info.mint_icon_url,
         .motd = parsed_settings.value.mint_info.motd,
+        .nuts = nuts,
     };
 
     const mnemonic = try bip39.Mnemonic.parseInNormalized(.english, parsed_settings.value.info.mnemonic);
@@ -194,6 +260,13 @@ pub fn main() !void {
     var srv = try router.createMintServer(gpa.allocator(), mint_url, &mint, ln_backends, quote_ttl, .{
         .port = listen_port,
         .address = listen_addr,
+    }, &.{
+        .{
+            httpz.middleware.Cors, .{
+                .origin = "*",
+                .headers = "*",
+            },
+        },
     });
     defer srv.deinit();
 
@@ -202,27 +275,35 @@ pub fn main() !void {
 
     // Spawn task to wait for invoces to be paid and update mint quotes
     // handle invoices
-    // for (_, ln) in ln_backends {
-    //     let mint = Arc::clone(&mint);
-    //     tokio::spawn(async move {
-    //         loop {
-    //             match ln.wait_any_invoice().await {
-    //                 Ok(mut stream) => {
-    //                     while let Some(request_lookup_id) = stream.next().await {
-    //                         if let Err(err) =
-    //                             handle_paid_invoice(mint.clone(), &request_lookup_id).await
-    //                         {
-    //                             tracing::warn!("{:?}", err);
-    //                         }
-    //                     }
-    //                 }
-    //                 Err(err) => {
-    //                     tracing::warn!("Could not get invoice stream: {}", err);
-    //                 }
-    //             }
-    //         }
-    //     });
-    // }
+    const threads = v: {
+        var threads = try std.ArrayList(std.Thread).initCapacity(gpa.allocator(), ln_backends.count());
+        errdefer threads.deinit();
+        errdefer for (threads.items) |t| t.detach();
+
+        const thread_fn = (struct {
+            fn handleLnInvoice(m: *Mint, wait_ch: Channel(std.ArrayList(u8)).Rx) void {
+                while (true) {
+                    var request_lookup_id = wait_ch.recv();
+                    defer request_lookup_id.deinit();
+
+                    handlePaidInvoice(m, request_lookup_id.items) catch |err| {
+                        std.log.warn("handle paid invoice error, lookup_id {s}, err={s}", .{ request_lookup_id.items, @errorName(err) });
+                        continue;
+                    };
+                }
+            }
+        }).handleLnInvoice;
+
+        var it = ln_backends.iterator();
+        while (it.next()) |ln_entry| {
+            threads.appendAssumeCapacity(try std.Thread.spawn(.{}, thread_fn, .{
+                &mint, try ln_entry.value_ptr.waitAnyInvoice(),
+            }));
+        }
+        break :v threads;
+    };
+    defer threads.deinit();
+    defer for (threads.items) |t| t.detach();
 
     std.log.info("Listening server on {s}:{d}", .{
         parsed_settings.value.info.listen_host, parsed_settings.value.info.listen_port,

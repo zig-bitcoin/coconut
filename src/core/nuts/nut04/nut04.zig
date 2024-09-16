@@ -2,10 +2,15 @@
 //!
 //! <https://github.com/cashubtc/nuts/blob/main/04.md>
 const std = @import("std");
+const zul = @import("zul");
+
 const CurrencyUnit = @import("../nut00/nut00.zig").CurrencyUnit;
+const BlindedMessage = @import("../nut00/nut00.zig").BlindedMessage;
+const BlindSignature = @import("../nut00/nut00.zig").BlindSignature;
 const Proof = @import("../nut00/nut00.zig").Proof;
 const PaymentMethod = @import("../nut00/nut00.zig").PaymentMethod;
 const MintQuote = @import("../../mint/types.zig").MintQuote;
+const Amount = @import("../../amount.zig").Amount;
 
 pub const QuoteState = enum {
     /// Quote has not been paid
@@ -25,6 +30,19 @@ pub const QuoteState = enum {
         if (std.mem.eql(u8, "ISSUED", s)) return .issued;
 
         return error.UnknownState;
+    }
+
+    pub fn toStr(self: *const QuoteState) []const u8 {
+        return switch (self.*) {
+            .unpaid => "UNPAID",
+            .paid => "PAID",
+            .pending => "PENDING",
+            .issued => "ISSUED",
+        };
+    }
+
+    pub fn jsonStringify(self: *const QuoteState, out: anytype) !void {
+        try out.write(self.toStr());
     }
 };
 
@@ -60,10 +78,18 @@ pub const Settings = struct {
     }
 };
 
+/// Mint quote request [NUT-04]
+pub const MintQuoteBolt11Request = struct {
+    /// Amount
+    amount: Amount,
+    /// Unit wallet would like to pay with
+    unit: CurrencyUnit,
+};
+
 /// Mint quote response [NUT-04]
 pub const MintQuoteBolt11Response = struct {
     /// Quote Id
-    quote: []const u8,
+    quote: [36]u8,
     /// Payment request to fulfil
     request: []const u8,
     // TODO: To be deprecated
@@ -76,15 +102,15 @@ pub const MintQuoteBolt11Response = struct {
     expiry: ?u64,
 
     pub fn clone(self: *const @This(), allocator: std.mem.Allocator) !@This() {
-        const quote = try allocator.dupe(u8, self.quote);
-        errdefer allocator.free(quote);
+        // const quote = try allocator.dupe(u8, self.quote);
+        // errdefer allocator.free(quote);
 
         const request = try allocator.dupe(u8, self.request);
         errdefer allocator.free(request);
 
         var cloned = self.*;
         cloned.request = request;
-        cloned.quote = quote;
+        // cloned.quote = quote;
         return cloned;
     }
 
@@ -97,7 +123,7 @@ pub const MintQuoteBolt11Response = struct {
     pub fn fromMintQuote(mint_quote: MintQuote) !MintQuoteBolt11Response {
         const paid = mint_quote.state == .paid;
         return .{
-            .quote = &mint_quote.id,
+            .quote = mint_quote.id.toHex(.lower),
             .request = mint_quote.request,
             .paid = paid,
             .state = mint_quote.state,
@@ -166,4 +192,18 @@ pub const MintQuoteBolt11Response = struct {
             .paid = paid,
         };
     }
+};
+
+/// Mint response [NUT-04]
+pub const MintBolt11Response = struct {
+    /// Blinded Signatures
+    signatures: []const BlindSignature,
+};
+
+/// Mint request [NUT-04]
+pub const MintBolt11Request = struct {
+    /// Quote id
+    quote: [36]u8,
+    /// Outputs
+    outputs: []const BlindedMessage,
 };

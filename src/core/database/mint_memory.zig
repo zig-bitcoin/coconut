@@ -19,8 +19,8 @@ pub const MintMemoryDatabase = struct {
 
     active_keysets: std.AutoHashMap(nuts.CurrencyUnit, nuts.Id),
     keysets: std.AutoHashMap(nuts.Id, MintKeySetInfo),
-    mint_quotes: std.AutoHashMap([16]u8, MintQuote),
-    melt_quotes: std.AutoHashMap([16]u8, MeltQuote),
+    mint_quotes: std.AutoHashMap(zul.UUID, MintQuote),
+    melt_quotes: std.AutoHashMap(zul.UUID, MeltQuote),
     proofs: std.AutoHashMap([33]u8, nuts.Proof),
     proof_states: std.AutoHashMap([33]u8, nuts.nut07.State),
     blinded_signatures: std.AutoHashMap([33]u8, nuts.BlindSignature),
@@ -107,13 +107,13 @@ pub const MintMemoryDatabase = struct {
             try _keysets.put(ks.id, ks);
         }
 
-        var _mint_quotes = std.AutoHashMap([16]u8, MintQuote).init(allocator);
+        var _mint_quotes = std.AutoHashMap(zul.UUID, MintQuote).init(allocator);
         errdefer _mint_quotes.deinit();
 
         for (mint_quotes) |q| {
             try _mint_quotes.put(q.id, q);
         }
-        var _melt_quotes = std.AutoHashMap([16]u8, MeltQuote).init(allocator);
+        var _melt_quotes = std.AutoHashMap(zul.UUID, MeltQuote).init(allocator);
         errdefer _melt_quotes.deinit();
 
         for (melt_quotes) |q| {
@@ -146,9 +146,9 @@ pub const MintMemoryDatabase = struct {
 
         const keysets = std.AutoHashMap(nuts.Id, MintKeySetInfo).init(arena.allocator());
 
-        const mint_quotes = std.AutoHashMap([16]u8, MintQuote).init(arena.allocator());
+        const mint_quotes = std.AutoHashMap(zul.UUID, MintQuote).init(arena.allocator());
 
-        const melt_quotes = std.AutoHashMap([16]u8, MeltQuote).init(arena.allocator());
+        const melt_quotes = std.AutoHashMap(zul.UUID, MeltQuote).init(arena.allocator());
 
         const proofs = std.AutoHashMap([33]u8, nuts.Proof).init(arena.allocator());
 
@@ -231,13 +231,12 @@ pub const MintMemoryDatabase = struct {
     pub fn addMintQuote(self: *Self, quote: MintQuote) !void {
         self.lock.lock();
         defer self.lock.unlock();
-        // TODO clone quote
 
-        try self.mint_quotes.put(quote.id, quote);
+        try self.mint_quotes.put(quote.id, try quote.clone(self.allocator));
     }
 
     // caller must free MintQuote
-    pub fn getMintQuote(self: *Self, allocator: std.mem.Allocator, quote_id: [16]u8) !?MintQuote {
+    pub fn getMintQuote(self: *Self, allocator: std.mem.Allocator, quote_id: zul.UUID) !?MintQuote {
         self.lock.lockShared();
         defer self.lock.unlockShared();
 
@@ -248,7 +247,7 @@ pub const MintMemoryDatabase = struct {
 
     pub fn updateMintQuoteState(
         self: *Self,
-        quote_id: [16]u8,
+        quote_id: zul.UUID,
         state: nuts.nut04.QuoteState,
     ) !nuts.nut04.QuoteState {
         self.lock.lockShared();
@@ -321,7 +320,7 @@ pub const MintMemoryDatabase = struct {
 
     pub fn removeMintQuoteState(
         self: *Self,
-        quote_id: [16]u8,
+        quote_id: zul.UUID,
     ) !void {
         self.lock.lock();
         defer self.lock.unlock();
@@ -334,11 +333,11 @@ pub const MintMemoryDatabase = struct {
         self.lock.lock();
         defer self.lock.unlock();
 
-        try self.melt_quotes.put(quote.id, quote);
+        try self.melt_quotes.put(quote.id, try quote.clone(self.allocator));
     }
 
     // caller must free MeltQuote
-    pub fn getMeltQuote(self: *Self, allocator: std.mem.Allocator, quote_id: [16]u8) !?MeltQuote {
+    pub fn getMeltQuote(self: *Self, allocator: std.mem.Allocator, quote_id: zul.UUID) !?MeltQuote {
         self.lock.lockShared();
         defer self.lock.unlockShared();
 
@@ -349,7 +348,7 @@ pub const MintMemoryDatabase = struct {
 
     pub fn updateMeltQuoteState(
         self: *Self,
-        quote_id: [16]u8,
+        quote_id: zul.UUID,
         state: nuts.nut05.QuoteState,
     ) !nuts.nut05.QuoteState {
         self.lock.lockShared();
@@ -422,7 +421,7 @@ pub const MintMemoryDatabase = struct {
 
     pub fn removeMeltQuoteState(
         self: *Self,
-        quote_id: [16]u8,
+        quote_id: zul.UUID,
     ) void {
         self.lock.lock();
         defer self.lock.unlock();

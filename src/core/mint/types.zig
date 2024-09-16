@@ -10,7 +10,7 @@ const zul = @import("zul");
 /// Mint Quote Info
 pub const MintQuote = struct {
     /// Quote id
-    id: [16]u8,
+    id: zul.UUID,
     /// Mint Url
     mint_url: []const u8,
     /// Amount of quote
@@ -25,6 +25,16 @@ pub const MintQuote = struct {
     expiry: u64,
     /// Value used by ln backend to look up state of request
     request_lookup_id: []const u8,
+
+    /// formatting mint quote
+    pub fn format(
+        self: MintQuote,
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        try writer.print("{}", .{std.json.fmt(self, .{})});
+    }
 
     /// Create new [`MintQuote`]
     /// creating copy of arguments, so caller responsible on deinit resources
@@ -41,7 +51,7 @@ pub const MintQuote = struct {
 
         const mint_quote: MintQuote = .{
             .mint_url = mint_url,
-            .id = id.bin,
+            .id = id,
             .amount = amount,
             .unit = unit,
             .request = request,
@@ -81,7 +91,7 @@ pub const MintQuote = struct {
 /// Melt Quote Info
 pub const MeltQuote = struct {
     /// Quote id
-    id: [16]u8,
+    id: zul.UUID,
     /// Quote unit
     unit: CurrencyUnit,
     /// Quote amount
@@ -99,6 +109,16 @@ pub const MeltQuote = struct {
     /// Value used by ln backend to look up state of request
     request_lookup_id: []const u8,
 
+    /// formatting mint quote
+    pub fn format(
+        self: MeltQuote,
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        try writer.print("{}", .{std.json.fmt(self, .{})});
+    }
+
     /// Create new [`MeltQuote`]
     pub fn init(
         request: []const u8,
@@ -111,7 +131,7 @@ pub const MeltQuote = struct {
         const id = zul.UUID.v4();
 
         return .{
-            .id = id.bin,
+            .id = id,
             .amount = amount,
             .unit = unit,
             .request = request,

@@ -2,6 +2,8 @@
 const root = @import("../../lib.zig");
 const std = @import("std");
 
+pub const MintLightning = @import("mint.zig");
+
 const Bolt11Invoice = root.lightning_invoices.Bolt11Invoice;
 const Amount = root.core.amount.Amount;
 const MeltQuoteState = root.core.nuts.nut05.QuoteState;

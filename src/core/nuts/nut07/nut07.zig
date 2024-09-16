@@ -21,6 +21,19 @@ pub const State = enum {
     /// i.e. used to create a token
     reserved,
 
+    pub fn jsonStringify(self: State, out: anytype) !void {
+        try out.write(self.toString());
+    }
+
+    pub fn jsonParse(allocator: std.mem.Allocator, source: anytype, _: std.json.ParseOptions) !State {
+        const state = try std.json.innerParse([]const u8, allocator, source, .{});
+
+        return State.fromString(state) catch {
+            std.log.debug("wrong state value: {s}", .{state});
+            return error.UnexpectedError;
+        };
+    }
+
     pub fn toString(self: State) []const u8 {
         return switch (self) {
             .spent => "SPENT",

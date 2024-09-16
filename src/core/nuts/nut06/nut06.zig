@@ -58,6 +58,12 @@ pub const Nuts = struct {
     /// NUT15 Settings
     nut15: nut15.Settings = .{},
 
+    pub fn deinit(self: Nuts, gpa: std.mem.Allocator) void {
+        gpa.free(self.nut04.methods);
+        gpa.free(self.nut05.methods);
+        gpa.free(self.nut15.methods);
+    }
+
     pub usingnamespace helper.RenameJsonField(
         @This(),
         std.StaticStringMap([]const u8).initComptime(

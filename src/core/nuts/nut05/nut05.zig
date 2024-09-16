@@ -7,8 +7,11 @@ const CurrencyUnit = @import("../nut00/nut00.zig").CurrencyUnit;
 const Proof = @import("../nut00/nut00.zig").Proof;
 const PaymentMethod = @import("../nut00/nut00.zig").PaymentMethod;
 const Mpp = @import("../nut15/nut15.zig").Mpp;
+const MeltQuote = @import("../../mint//mint.zig").MeltQuote;
 const Bolt11Invoice = @import("../../../lightning_invoices/invoice.zig").Bolt11Invoice;
+
 const std = @import("std");
+const zul = @import("zul");
 
 /// Melt quote request [NUT-05]
 pub const MeltQuoteBolt11Request = struct {
@@ -47,12 +50,25 @@ pub const QuoteState = enum {
 
         return kv.get(s) orelse return error.UnknownState;
     }
+
+    pub fn jsonStringify(self: QuoteState, out: anytype) !void {
+        try out.write(self.toString());
+    }
+
+    pub fn jsonParse(allocator: std.mem.Allocator, source: anytype, _: std.json.ParseOptions) !QuoteState {
+        const state = try std.json.innerParse([]const u8, allocator, source, .{});
+
+        return QuoteState.fromString(state) catch {
+            std.log.debug("wrong state value: {s}", .{state});
+            return error.UnexpectedError;
+        };
+    }
 };
 
 /// Melt quote response [NUT-05]
 pub const MeltQuoteBolt11Response = struct {
-    /// Quote Id
-    quote: []const u8,
+    /// Quote Id hex
+    quote: [36]u8,
     /// The amount that needs to be provided
     amount: u64,
     /// The fee reserve that is required
@@ -69,6 +85,21 @@ pub const MeltQuoteBolt11Response = struct {
     payment_preimage: ?[]const u8 = null,
     /// Change
     change: ?[]const BlindSignature = null,
+
+    pub fn fromMeltQuote(melt_quote: MeltQuote) MeltQuoteBolt11Response {
+        const paid = melt_quote.state == .paid;
+
+        return .{
+            .quote = melt_quote.id.toHex(.lower),
+            .amount = melt_quote.amount,
+            .fee_reserve = melt_quote.fee_reserve,
+            .paid = paid,
+            .state = melt_quote.state,
+            .expiry = melt_quote.expiry,
+            .payment_preimage = melt_quote.payment_preimage,
+            .change = null,
+        };
+    }
 };
 
 /// Melt Bolt11 Request [NUT-05]

@@ -193,6 +193,7 @@ pub fn RenameJsonField(comptime T: type, comptime field_from_to: std.StaticStrin
                         break;
                     },
                     else => {
+                        std.log.debug("unexpected token: {any}", .{name_token});
                         return error.UnexpectedToken;
                     },
                 };
@@ -209,8 +210,17 @@ pub fn RenameJsonField(comptime T: type, comptime field_from_to: std.StaticStrin
                 }
 
                 if (!f) {
-                    std.log.err("field not found {s}", .{field_name});
-                    return error.MissingField;
+                    // not found field in struct
+                    if (options.ignore_unknown_fields) {
+                        std.log.debug("field is not exist in Type {s}, field name = {s} ", .{
+                            @typeName(T),
+                            field_name,
+                        });
+                        return error.MissingField;
+                    }
+
+                    // we need to read value
+                    _ = try source.next();
                 }
             }
 
