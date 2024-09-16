@@ -4,7 +4,7 @@ const core = @import("../core/lib.zig");
 const zul = @import("zul");
 const ln_invoice = @import("../lightning_invoices/invoice.zig");
 
-const FakeWallet = @import("../fake_wallet/fake_wallet.zig").FakeWallet;
+const MintLightning = core.lightning.MintLightning;
 const MintState = @import("router.zig").MintState;
 const LnKey = @import("router.zig").LnKey;
 
@@ -96,9 +96,7 @@ pub fn getMintBolt11Quote(
 
     const payload = (try req.json(core.nuts.nut04.MintQuoteBolt11Request)) orelse return error.WrongRequest;
 
-    const ln: FakeWallet = state.ln.get(LnKey.init(payload.unit, .bolt11)) orelse {
-        std.log.err("Bolt11 mint request for unsupported unit, unit = {any}", .{payload.unit});
-
+    const ln: MintLightning = state.ln.get(LnKey.init(payload.unit, .bolt11)) orelse {
         return error.UnsupportedUnit;
     };
 
@@ -164,9 +162,7 @@ pub fn getMeltBolt11Quote(
 
     const payload = (try req.json(core.nuts.nut05.MeltQuoteBolt11Request)) orelse return error.WrongRequest;
 
-    const ln: FakeWallet = state.ln.get(LnKey.init(payload.unit, .bolt11)) orelse {
-        std.log.err("Bolt11 mint request for unsupported unit, unit = {any}", .{payload.unit});
-
+    const ln: MintLightning = state.ln.get(LnKey.init(payload.unit, .bolt11)) orelse {
         return error.UnsupportedUnit;
     };
 
@@ -323,9 +319,7 @@ pub fn postMeltBolt11(
             }
         }
 
-        const ln: FakeWallet = state.ln.get(.{ .unit = quote.unit, .method = .bolt11 }) orelse {
-            std.log.debug("Could not get ln backend for {}, bolt11 ", .{quote.unit});
-
+        const ln: MintLightning = state.ln.get(.{ .unit = quote.unit, .method = .bolt11 }) orelse {
             state.mint.processUnpaidMelt(payload) catch |e| {
                 std.log.err("Could not reset melt quote state: {}", .{e});
             };

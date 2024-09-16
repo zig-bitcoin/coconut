@@ -18,6 +18,7 @@ const MintMeltSettings = core.lightning.MintMeltSettings;
 const FeeReserve = core.mint.FeeReserve;
 const Channel = @import("../channels/channels.zig").Channel;
 const MintQuoteState = core.nuts.nut04.QuoteState;
+const MintLightning = core.lightning.MintLightning;
 
 // TODO:  wait any invoices, here we need create a new listener, that will receive
 // message like pub sub channel
@@ -66,6 +67,10 @@ pub const FakeWallet = struct {
             .allocator = allocator,
             .thread_pool = try zul.ThreadPool(sendLabelFn).init(allocator, .{ .count = 3 }),
         };
+    }
+
+    pub fn toMintLightning(self: *const Self, gpa: std.mem.Allocator) error{OutOfMemory}!MintLightning {
+        return MintLightning.initFrom(Self, gpa, self.*);
     }
 
     pub fn deinit(self: *FakeWallet) void {
@@ -229,4 +234,15 @@ pub const FakeWallet = struct {
     }
 };
 
-test {}
+test {
+    var mint = try FakeWallet.init(std.testing.allocator, .{}, .{}, .{});
+    defer mint.deinit();
+
+    const ln = mint.toMintLightning();
+    const settings = try ln.getSettings();
+
+    const _settings = mint.getSettings();
+
+    std.testing.expectEqual(settings, _settings);
+    std.log.warn("qq", .{});
+}

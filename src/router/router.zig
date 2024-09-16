@@ -6,12 +6,12 @@ const router_handlers = @import("router_handlers.zig");
 const zul = @import("zul");
 const fake_wallet = @import("../fake_wallet/fake_wallet.zig");
 
+const MintLightning = core.lightning.MintLightning;
 const Mint = core.mint.Mint;
 const CurrencyUnit = core.nuts.CurrencyUnit;
 const PaymentMethod = core.nuts.PaymentMethod;
-const FakeWallet = fake_wallet.FakeWallet;
 
-pub const LnBackendsMap = std.HashMap(LnKey, FakeWallet, LnKeyContext, 80);
+pub const LnBackendsMap = std.HashMap(LnKey, MintLightning, LnKeyContext, 80);
 
 /// Create mint [`Server`] with required endpoints for cashu mint
 /// Caller responsible for free resources

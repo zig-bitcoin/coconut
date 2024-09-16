@@ -9,6 +9,7 @@ const builtin = @import("builtin");
 const config = @import("mintd/config.zig");
 const clap = @import("clap");
 
+const MintLightning = core.lightning.MintLightning;
 const MintState = @import("router/router.zig").MintState;
 const LnKey = @import("router/router.zig").LnKey;
 const FakeWallet = @import("fake_wallet/fake_wallet.zig").FakeWallet;
@@ -135,6 +136,7 @@ pub fn main() !void {
     var ln_backends = router.LnBackendsMap.init(gpa.allocator());
     defer {
         var it = ln_backends.valueIterator();
+
         while (it.next()) |v| {
             v.deinit();
         }
@@ -153,7 +155,10 @@ pub fn main() !void {
                 var wallet = try FakeWallet.init(gpa.allocator(), fee_reserve, .{}, .{});
                 errdefer wallet.deinit();
 
-                try ln_backends.put(ln_key, wallet);
+                const ln_mint = try wallet.toMintLightning(gpa.allocator());
+                errdefer ln_mint.deinit();
+
+                try ln_backends.put(ln_key, ln_mint);
 
                 try supported_units.put(unit, .{ input_fee_ppk, 64 });
             }

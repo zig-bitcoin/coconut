@@ -109,6 +109,16 @@ pub const MeltQuote = struct {
     /// Value used by ln backend to look up state of request
     request_lookup_id: []const u8,
 
+    /// formatting mint quote
+    pub fn format(
+        self: MeltQuote,
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        try writer.print("{}", .{std.json.fmt(self, .{})});
+    }
+
     /// Create new [`MeltQuote`]
     pub fn init(
         request: []const u8,
