@@ -285,7 +285,7 @@ pub const MintMemoryDatabase = struct {
     pub fn getMintQuoteByRequestLookupId(
         self: *Self,
         allocator: std.mem.Allocator,
-        request: []const u8,
+        request: zul.UUID,
     ) !?MintQuote {
         var arena = std.heap.ArenaAllocator.init(allocator);
         defer arena.deinit();
@@ -294,7 +294,7 @@ pub const MintMemoryDatabase = struct {
         const quotes = try self.getMintQuotes(arena.allocator());
         for (quotes.items) |q| {
             // if we found, cloning with allocator, so caller responsible on free resources
-            if (std.mem.eql(u8, q.request_lookup_id, request)) return try q.clone(allocator);
+            if (q.request_lookup_id.eql(request)) return try q.clone(allocator);
         }
 
         return null;
@@ -386,7 +386,7 @@ pub const MintMemoryDatabase = struct {
     pub fn getMeltQuoteByRequestLookupId(
         self: *Self,
         allocator: std.mem.Allocator,
-        request: []const u8,
+        request: zul.UUID,
     ) !?MeltQuote {
         var arena = std.heap.ArenaAllocator.init(allocator);
         defer arena.deinit();
@@ -395,7 +395,7 @@ pub const MintMemoryDatabase = struct {
         const quotes = try self.getMeltQuotes(arena.allocator());
         for (quotes.items) |q| {
             // if we found, cloning with allocator, so caller responsible on free resources
-            if (std.mem.eql(u8, q.request_lookup_id, request)) return try q.clone(allocator);
+            if (std.mem.eql(u8, q.request_lookup_id, &request.bin)) return try q.clone(allocator);
         }
 
         return null;
