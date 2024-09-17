@@ -121,7 +121,7 @@ pub fn getMintBolt11Quote(
         payload.unit,
         payload.amount,
         create_invoice_response.expiry orelse 0,
-        create_invoice_response.request_lookup_id,
+        try zul.UUID.parse(create_invoice_response.request_lookup_id),
     ) catch |err| {
         std.log.err("could not create new mint quote: {any}", .{err});
         return error.InternalError;
