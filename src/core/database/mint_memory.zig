@@ -435,7 +435,7 @@ pub const MintMemoryDatabase = struct {
         defer self.lock.unlock();
 
         // ensuring that capacity of proofs enough for array
-        try self.proofs.ensureTotalCapacity(@intCast(proofs.len));
+        try self.proofs.ensureUnusedCapacity(@intCast(proofs.len));
 
         // we need full copy
         for (proofs) |proof| {
