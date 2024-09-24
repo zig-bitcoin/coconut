@@ -25,7 +25,7 @@ pub const MintQuote = struct {
     /// Expiration time of quote
     expiry: u64,
     /// Value used by ln backend to look up state of request
-    request_lookup_id: []const u8,
+    request_lookup_id: zul.UUID,
 
     /// formatting mint quote
     pub fn format(
@@ -46,7 +46,7 @@ pub const MintQuote = struct {
         unit: CurrencyUnit,
         amount: amount_lib.Amount,
         expiry: u64,
-        request_lookup_id: []const u8,
+        request_lookup_id: zul.UUID,
     ) !MintQuote {
         const id = zul.UUID.v4();
 
@@ -65,14 +65,10 @@ pub const MintQuote = struct {
     }
 
     pub fn deinit(self: *const MintQuote, allocator: std.mem.Allocator) void {
-        allocator.free(self.request_lookup_id);
         allocator.free(self.request);
     }
 
     pub fn clone(self: *const MintQuote, allocator: std.mem.Allocator) !MintQuote {
-        const request_lookup = try allocator.dupe(u8, self.request_lookup_id);
-        errdefer allocator.free(request_lookup);
-
         const request = try allocator.dupe(u8, self.request);
         errdefer allocator.free(request);
 
@@ -82,7 +78,6 @@ pub const MintQuote = struct {
         var cloned = self.*;
 
         cloned.request = request;
-        cloned.request_lookup_id = request_lookup;
         cloned.mint_url = mint_url;
 
         return cloned;

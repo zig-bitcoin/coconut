@@ -8,6 +8,7 @@ const os = std.os;
 const builtin = @import("builtin");
 const config = @import("mintd/config.zig");
 const clap = @import("clap");
+const zul = @import("zul");
 
 const MintLightning = core.lightning.MintLightning;
 const MintState = @import("router/router.zig").MintState;
@@ -15,7 +16,8 @@ const LnKey = @import("router/router.zig").LnKey;
 const FakeWallet = @import("fake_wallet/fake_wallet.zig").FakeWallet;
 const Mint = core.mint.Mint;
 const FeeReserve = core.mint.FeeReserve;
-const MintDatabase = core.mint_memory.MintMemoryDatabase;
+const MintDatabase = core.mint_memory.MintDatabase;
+const MintMemoryDatabase = core.mint_memory.MintMemoryDatabase;
 const ContactInfo = core.nuts.ContactInfo;
 const MintVersion = core.nuts.MintVersion;
 const MintInfo = core.nuts.MintInfo;
@@ -25,9 +27,11 @@ const default_quote_ttl_secs: u64 = 1800;
 
 /// Update mint quote when called for a paid invoice
 fn handlePaidInvoice(mint: *Mint, request_lookup_id: []const u8) !void {
-    std.log.debug("Invoice with lookup id paid: {s}", .{request_lookup_id});
+    const request_lookup = try zul.UUID.parse(request_lookup_id);
 
-    try mint.payMintQuoteForRequestId(request_lookup_id);
+    std.log.debug("Invoice with lookup id paid: {s}", .{request_lookup});
+
+    try mint.payMintQuoteForRequestId(request_lookup);
 }
 
 pub fn main() !void {
@@ -78,8 +82,8 @@ pub fn main() !void {
     defer parsed_settings.deinit();
 
     var localstore = switch (parsed_settings.value.database.engine) {
-        .in_memory => v: {
-            break :v try MintDatabase.initFrom(
+        inline .in_memory => v: {
+            var db = try MintMemoryDatabase.initFrom(
                 gpa.allocator(),
                 .init(gpa.allocator()),
                 &.{},
@@ -89,6 +93,9 @@ pub fn main() !void {
                 &.{},
                 .init(gpa.allocator()),
             );
+            errdefer db.deinit();
+
+            break :v try MintDatabase.initFrom(MintMemoryDatabase, gpa.allocator(), db);
         },
         else => {
             // not implemented engine
@@ -237,7 +244,7 @@ pub fn main() !void {
 
     const mnemonic = try bip39.Mnemonic.parseInNormalized(.english, parsed_settings.value.info.mnemonic);
 
-    var mint = try Mint.init(gpa.allocator(), parsed_settings.value.info.url, &try mnemonic.toSeedNormalized(&.{}), mint_info, &localstore, supported_units);
+    var mint = try Mint.init(gpa.allocator(), parsed_settings.value.info.url, &try mnemonic.toSeedNormalized(&.{}), mint_info, localstore, supported_units);
     defer mint.deinit();
 
     // Check the status of any mint quotes that are pending

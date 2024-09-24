@@ -18,6 +18,8 @@ const CurrencyUnit = core.nuts.CurrencyUnit;
 
 pub const MintQuote = @import("types.zig").MintQuote;
 pub const MeltQuote = @import("types.zig").MeltQuote;
+
+pub const MintDatabase = core.mint_memory.MintDatabase;
 pub const MintMemoryDatabase = core.mint_memory.MintMemoryDatabase;
 
 // TODO implement tests
@@ -77,7 +79,7 @@ pub const Mint = struct {
     /// Mint Info
     mint_info: MintInfo,
     /// Mint Storage backend
-    localstore: helper.RWMutex(*MintMemoryDatabase),
+    localstore: helper.RWMutex(MintDatabase),
     /// Active Mint Keysets
     keysets: RWMutex(std.AutoHashMap(nuts.Id, nuts.MintKeySet)),
     secp_ctx: secp256k1.Secp256k1,
@@ -102,7 +104,7 @@ pub const Mint = struct {
         mint_url: []const u8,
         seed: []const u8,
         mint_info: MintInfo,
-        localstore: *MintMemoryDatabase,
+        localstore: MintDatabase,
         // Hashmap where the key is the unit and value is (input fee ppk, max_order)
         supported_units: std.AutoHashMap(core.nuts.CurrencyUnit, std.meta.Tuple(&.{ u64, u8 })),
     ) !Mint {
@@ -286,7 +288,7 @@ pub const Mint = struct {
         unit: nuts.CurrencyUnit,
         amount: core.amount.Amount,
         expiry: u64,
-        ln_lookup: []const u8,
+        ln_lookup: zul.UUID,
     ) !MintQuote {
         const nut04 = self.mint_info.nuts.nut04;
         if (nut04.disabled) return error.MintingDisabled;
@@ -577,7 +579,7 @@ pub const Mint = struct {
     /// Flag mint quote as paid
     pub fn payMintQuoteForRequestId(
         self: *Mint,
-        request_lookup_id: []const u8,
+        request_lookup_id: zul.UUID,
     ) !void {
         const mint_quote = (try self.localstore.value.getMintQuoteByRequestLookupId(self.allocator, request_lookup_id)) orelse return;
 
@@ -1329,15 +1331,16 @@ const MintConfig = struct {
 };
 
 fn createMint(arena: std.mem.Allocator, config: MintConfig) !Mint {
-    const db_ptr = try arena.create(MintMemoryDatabase);
-    db_ptr.* = try MintMemoryDatabase.initFrom(arena, config.active_keysets, config.keysets, config.mint_quotes, config.melt_quotes, config.pending_proofs, config.spent_proofs, config.blinded_signatures);
+    const db = try MintMemoryDatabase.initFrom(arena, config.active_keysets, config.keysets, config.mint_quotes, config.melt_quotes, config.pending_proofs, config.spent_proofs, config.blinded_signatures);
+
+    const _db = try MintDatabase.initFrom(MintMemoryDatabase, arena, db);
 
     return Mint.init(
         arena,
         config.mint_url,
         config.seed,
         config.mint_info,
-        db_ptr,
+        _db,
         config.supported_units,
     );
 }
