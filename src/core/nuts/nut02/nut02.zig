@@ -44,6 +44,10 @@ pub const Id = struct {
     version: KeySetVersion,
     id: [BYTELEN]u8,
 
+    pub fn toString(self: Id) [STRLEN + 2]u8 {
+        return ("00" ++ std.fmt.bytesToHex(self.id, .lower)).*;
+    }
+
     pub fn toBytes(self: Id) [BYTELEN + 1]u8 {
         return [_]u8{self.version.toByte()} ++ self.id;
     }

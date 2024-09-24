@@ -29,6 +29,10 @@ const external_dependencies = [_]build_helpers.Dependency{
         .name = "clap",
         .module_name = "clap",
     },
+    .{
+        .name = "zqlite",
+        .module_name = "zqlite",
+    },
 };
 
 pub fn build(b: *std.Build) !void {
@@ -101,6 +105,7 @@ pub fn build(b: *std.Build) !void {
                 .target = target,
                 .optimize = optimize,
             });
+            exe.linkSystemLibrary("sqlite3");
 
             // Add dependency modules to the library.
             for (deps) |mod| exe.root_module.addImport(
@@ -124,6 +129,7 @@ pub fn build(b: *std.Build) !void {
                 mod.name,
                 mod.module,
             );
+            exe.linkSystemLibrary("sqlite3");
 
             check.dependOn(&exe.step);
         }
@@ -159,6 +165,8 @@ pub fn build(b: *std.Build) !void {
             .target = target,
             .optimize = optimize,
         });
+
+        exe.linkSystemLibrary("sqlite3");
 
         // Add dependency modules to the library.
         for (deps) |mod| exe.root_module.addImport(

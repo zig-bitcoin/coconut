@@ -51,6 +51,14 @@
             .url = "git+https://github.com/Hejsil/zig-clap#2d9db156ae928860a9acf2f1260750d3b44a4c98",
             .hash = "122005e589ab3b6bff8e589b45f5b12cd27ce79f266bdac17e9f33ebfe2fbaff7fe3",
         },
+        .rocksdb = .{
+            .url = "git+https://github.com/zig-bitcoin/rocksdb-zig#27f69e3756999ac711f4f9278a698fd5eecce169",
+            .hash = "122086b7931284e391223ce165a9bee94b624a7fb34531ecc95cafb22f049887d175",
+        },
+        .zqlite = .{
+            .url = "git+https://github.com/karlseguin/zqlite.zig#5b9e8715fb174c1c1f0bf15e4fbf5e77df5c6b34",
+            .hash = "12209446c0581a04f460f978c489c6e5eec62ca1c4f95a7c5cf8f1d2abc597074db7",
+        },
     },
     .paths = .{
         "build.zig",
