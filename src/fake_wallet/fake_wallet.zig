@@ -127,6 +127,7 @@ pub const FakeWallet = struct {
             .request_lookup_id = req_lookup_id,
             .amount = amount,
             .fee = fee,
+            .state = .unpaid,
         };
     }
 

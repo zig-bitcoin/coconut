@@ -30,6 +30,8 @@ pub const PayInvoiceResponse = struct {
     /// Totoal Amount Spent
     total_spent: Amount,
 
+    unit: CurrencyUnit,
+
     pub fn deinit(self: PayInvoiceResponse, allocator: std.mem.Allocator) void {
         allocator.free(self.payment_hash);
 
@@ -45,6 +47,8 @@ pub const PaymentQuoteResponse = struct {
     amount: Amount,
     /// Fee required for melt
     fee: u64,
+    /// Status
+    state: MeltQuoteState,
 
     pub fn deinit(self: PaymentQuoteResponse, allocator: std.mem.Allocator) void {
         allocator.free(self.request_lookup_id);
