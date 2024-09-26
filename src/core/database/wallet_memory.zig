@@ -133,28 +133,49 @@ pub const WalletMemoryDatabase = struct {
 
     pub fn updateMintUrl(
         self: *Self,
-        // old_mint_url: []u8,
-        // new_mint_url: []u8,
+        old_mint_url: []u8,
+        new_mint_url: []u8,
     ) !void {
         self.lock.lock();
         defer self.lock.unlock();
 
-        // TODO
+        const proofs = self.getProofs(
+            old_mint_url,
+            null,
+            null,
+            null,
+            self.allocator,
+        ) catch return error.CouldNotGetProofs;
 
-        // const proofs = self.getProofs(old_mint_url);
         // Update proofs
-        {
-            // const updated_proofs = std.ArrayList(ProofInfo);
-            // self.updateProofs();
+        var updated_proofs = std.ArrayList(ProofInfo).init(self.allocator);
+        defer updated_proofs.deinit();
+
+        var removed_ys = std.ArrayList(secp256k1.PublicKey).init(self.allocator);
+        defer removed_ys.deinit();
+
+        for (proofs.items) |proof| {
+            const new_proof = ProofInfo.init(
+                proof.proof,
+                new_mint_url,
+                proof.state,
+                proof.unit,
+            );
+            try updated_proofs.append(new_proof);
         }
 
+        try self.updateProofs(updated_proofs.items, removed_ys.items);
+
         // Update mint quotes
-        {
-            // const current_quotes = self.getMintQuotes();
-            // const quotes = std.ArrayList(MintQuote);
-            // for (quotes) |quote| {
-            //     self.addMintQuote(quote);
-            // }
+        const current_quotes = self.getMintQuotes(self.allocator) catch return error.CouldNotGetMintQuotes;
+        const quotes = current_quotes.items;
+        const time = unix_time();
+
+        for (quotes) |*quote| {
+            if (quote.expiry < time) {
+                quote.mint_url = new_mint_url;
+            }
+            try self.addMintQuote(quote.*);
         }
     }
 
@@ -271,8 +292,8 @@ pub const WalletMemoryDatabase = struct {
     }
 
     pub fn getMeltQuote(
-        self: *Self, 
-        allocator: std.mem.Allocator, 
+        self: *Self,
+        allocator: std.mem.Allocator,
         quote_id: zul.UUID,
     ) !?MeltQuote {
         self.lock.lockShared();
@@ -315,8 +336,8 @@ pub const WalletMemoryDatabase = struct {
 
     pub fn updateProofs(
         self: *Self,
-        added: []ProofInfo,      
-        removed_ys: []secp256k1.PublicKey,  
+        added: []ProofInfo,
+        removed_ys: []secp256k1.PublicKey,
     ) !void {
         for (added) |proof_info| {
             try self.proofs.put(proof_info.y, proof_info);
@@ -425,3 +446,9 @@ pub const WalletMemoryDatabase = struct {
         try self.nostr_last_checked.put(verifying_key, last_checked);
     }
 };
+
+pub fn unix_time() u64 {
+    const timestamp = std.time.timestamp();
+    const time: u64 = @intCast(@divFloor(timestamp, std.time.ns_per_s));
+    return time;
+}

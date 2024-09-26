@@ -137,16 +137,16 @@ pub const Secret = struct {
         };
     }
 
-    pub fn toSpendingConditions(self: Secret, allocator: std.mem.Allocator) !SpendingConditions {
-        switch (self.kind) {
+    pub fn toSpendingConditions(self: ?Secret, allocator: std.mem.Allocator) !SpendingConditions {
+        switch (self.?.kind) {
             .p2pk => {
-                if (self.secret_data.data.len != 33) {
+                if (self.?.secret_data.data.len != 33) {
                     return error.InvalidPublicKeyLength;
                 }
-                const pubkey = try secp256k1.PublicKey.fromSlice(self.secret_data.data);
+                const pubkey = try secp256k1.PublicKey.fromSlice(self.?.secret_data.data);
 
                 // Parse optional conditions from `tags`
-                const conditions = if (self.secret_data.tags) |tags|
+                const conditions = if (self.?.secret_data.tags) |tags|
                     try Conditions.fromTags(tags, allocator)
                 else
                     null;
@@ -160,14 +160,14 @@ pub const Secret = struct {
                 };
             },
             .htlc => {
-                if (self.secret_data.data.len != 32) {
+                if (self.?.secret_data.data.len != 32) {
                     return error.InvalidHashLength;
                 }
                 var hash: [32]u8 = undefined;
-                @memcpy(&hash, self.secret_data.data);
+                @memcpy(&hash, self.?.secret_data.data);
 
                 // Parse optional conditions from `tags`
-                const conditions = if (self.secret_data.tags) |tags|
+                const conditions = if (self.?.secret_data.tags) |tags|
                     try Conditions.fromTags(tags, allocator)
                 else
                     null;

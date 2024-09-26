@@ -4,6 +4,8 @@ const amount_lib = @import("../lib.zig").amount;
 const CurrencyUnit = @import("../lib.zig").nuts.CurrencyUnit;
 const MintQuoteState = @import("../lib.zig").nuts.nut04.QuoteState;
 const MeltQuoteState = @import("../lib.zig").nuts.nut05.QuoteState;
+const Nut10Secret = @import("../lib.zig").nuts.nut10.Secret;
+const secret_lib = @import("../secret.zig");
 const bitcoin_primitives = @import("bitcoin-primitives");
 const secp256k1 = bitcoin_primitives.secp256k1;
 const zul = @import("zul");
@@ -197,13 +199,15 @@ pub const ProofInfo = struct {
         state: nuts.nut07.State,
         unit: nuts.CurrencyUnit,
     ) ProofInfo {
-        const secret = nuts.nut10.Secret.fromSecret(proof.secret);
+        const parsed_secret = Nut10Secret.fromSecret(proof.secret, std.heap.page_allocator) catch null;
+        const secret = parsed_secret.?.value;
+
         return .{
             .proof = proof,
             .y = proof.c,
             .mint_url = mint_url,
             .state = state,
-            .spending_conditions = nuts.nut10.toSpendingConditions(secret) catch null,
+            .spending_condition = Nut10Secret.toSpendingConditions(secret, std.heap.page_allocator) catch null,
             .unit = unit,
         };
     }
@@ -240,7 +244,7 @@ pub const ProofInfo = struct {
                         if (!containsCondition(conds, spending_condition)) {
                             return false;
                         }
-                    }
+                    },
                 }
             } else {
                 return false;
@@ -299,15 +303,15 @@ pub const ProofInfo = struct {
 
     fn compareTag(a: nuts.nut11.SpendingConditions, b: nuts.nut11.SpendingConditions) bool {
         return switch (a) {
-        nuts.nut11.SpendingConditions.p2pk => switch (b) {
-            nuts.nut11.SpendingConditions.p2pk => true,
-            else => false,
-        },
-        nuts.nut11.SpendingConditions.htlc => switch (b) {
-            nuts.nut11.SpendingConditions.htlc => true,
-            else => false,
-        },
-    };
+            nuts.nut11.SpendingConditions.p2pk => switch (b) {
+                nuts.nut11.SpendingConditions.p2pk => true,
+                else => false,
+            },
+            nuts.nut11.SpendingConditions.htlc => switch (b) {
+                nuts.nut11.SpendingConditions.htlc => true,
+                else => false,
+            },
+        };
     }
 
     fn compareConditions(a: ?nuts.nut11.Conditions, b: ?nuts.nut11.Conditions) bool {
@@ -320,6 +324,4 @@ pub const ProofInfo = struct {
 
         return true;
     }
-
-
 };
