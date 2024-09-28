@@ -60,7 +60,7 @@ pub const GlobalRouter = struct {
     router: std.ArrayList(Router),
 
     pub fn notFound(self: *GlobalRouter, req: *httpz.Request, res: *httpz.Response) !void {
-        std.log.info("trying to found {} {s} ", .{
+        std.log.debug("trying to found {} {s} ", .{
             req.method,
             req.url.path,
         });
@@ -92,13 +92,12 @@ test "ttt" {
 
         pub fn testik(self: @This(), req: *httpz.Request, res: *httpz.Response) !void {
             _ = req; // autofix
-            std.log.warn("testik", .{});
             res.body = self.s;
         }
     };
 
     const sh = SomeHandler{
-        .s = "responsik",
+        .s = "some_custom_response",
     };
 
     const SomeHandlerRouter = httpz.Router(SomeHandler, httpz.Action(SomeHandler));
@@ -116,7 +115,6 @@ test "ttt" {
 
     try router.router.append(c_handler);
 
-    std.log.warn("alla2", .{});
     var srv = try httpz.Server(*GlobalRouter).init(std.testing.allocator, .{}, &router);
 
     defer srv.deinit();
@@ -125,8 +123,6 @@ test "ttt" {
 
     var _router = srv.router(.{});
     _router.get("/test1234", GlobalRouter.notFound, .{});
-
-    std.log.warn("alla", .{});
 
     var web_test = ht.init(.{});
     defer web_test.deinit();
