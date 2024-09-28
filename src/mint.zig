@@ -9,6 +9,9 @@ const builtin = @import("builtin");
 const config = @import("mintd/config.zig");
 const clap = @import("clap");
 const zul = @import("zul");
+const ref = @import("sync/ref.zig");
+const mpmc = @import("sync/mpmc.zig");
+const http_router = @import("misc/http_router/http_router.zig");
 
 const MintLightning = core.lightning.MintLightning;
 const MintState = @import("router/router.zig").MintState;
@@ -22,16 +25,14 @@ const ContactInfo = core.nuts.ContactInfo;
 const MintVersion = core.nuts.MintVersion;
 const MintInfo = core.nuts.MintInfo;
 const Channel = @import("channels/channels.zig").Channel;
+const Lnbits = @import("core/mint/lightning/lnbits.zig").LnBits;
 
 const default_quote_ttl_secs: u64 = 1800;
 
 /// Update mint quote when called for a paid invoice
 fn handlePaidInvoice(mint: *Mint, request_lookup_id: []const u8) !void {
-    const request_lookup = try zul.UUID.parse(request_lookup_id);
-
-    std.log.debug("Invoice with lookup id paid: {s}", .{request_lookup});
-
-    try mint.payMintQuoteForRequestId(request_lookup);
+    std.log.debug("Invoice with lookup id paid: {s}", .{request_lookup_id});
+    try mint.payMintQuoteForRequestId(request_lookup_id);
 }
 
 pub fn main() !void {
@@ -135,6 +136,31 @@ pub fn main() !void {
         .percent_fee_reserve = relative_ln_fee,
     };
 
+    const mint_url = parsed_settings.value.info.url;
+    const listen_addr = parsed_settings.value.info.listen_host;
+    const listen_port = parsed_settings.value.info.listen_port;
+
+    var global_handler = http_router.GlobalRouter{
+        .router = std.ArrayList(http_router.Router).init(gpa.allocator()),
+    };
+    defer global_handler.router.deinit();
+
+    var srv = try httpz.Server(*http_router.GlobalRouter).init(gpa.allocator(), .{
+        .address = listen_addr,
+        .port = listen_port,
+    }, &global_handler);
+    defer srv.deinit();
+
+    const cors_middleware = try srv.middleware(httpz.middleware.Cors, .{
+        .origin = "*",
+        .headers = "*",
+    });
+
+    const s_router = srv.router(.{
+        .middlewares = &.{cors_middleware},
+    });
+    _ = s_router; // autofix
+
     const input_fee_ppk = parsed_settings.value.info.input_fee_ppk orelse 0;
 
     var supported_units = std.AutoHashMap(core.nuts.CurrencyUnit, std.meta.Tuple(&.{ u64, u8 })).init(gpa.allocator());
@@ -153,6 +179,64 @@ pub fn main() !void {
     // TODO set ln router
     // additional routers for httpz server
     switch (parsed_settings.value.ln.ln_backend) {
+        .lnbits => {
+            const lnbits_settings = parsed_settings.value.lnbits orelse unreachable;
+            const admin_api_key = lnbits_settings.admin_api_key;
+            const invoice_api_key = lnbits_settings.invoice_api_key;
+
+            const webhook_endpoint = "/webhook/lnbits/sat/invoice";
+            var webhook_url = zul.StringBuilder.init(gpa.allocator());
+
+            try webhook_url
+                .write(mint_url);
+            try webhook_url
+                .write(webhook_endpoint);
+
+            var chan = val: {
+                var ch = mpmc.UnboundedChannel(std.ArrayList(u8)).init(gpa.allocator());
+                errdefer ch.deinit();
+
+                break :val try ref.Arc(mpmc.UnboundedChannel(std.ArrayList(u8))).init(gpa.allocator(), ch);
+            };
+            errdefer chan.releaseWithFn((struct {
+                fn deinit(self: mpmc.UnboundedChannel(std.ArrayList(u8))) void {
+                    self.deinit();
+                }
+            }).deinit);
+
+            // TODO add fee reserve, webhooh, receiver
+            var lnbits = try Lnbits.init(
+                gpa.allocator(),
+                admin_api_key,
+                invoice_api_key,
+                lnbits_settings.lnbits_api,
+                .{},
+                .{},
+                fee_reserve,
+                chan.retain(),
+                webhook_url.string(),
+            );
+            errdefer lnbits.deinit();
+
+            const ln_mint = try lnbits.toMintLightning(gpa.allocator());
+            errdefer ln_mint.deinit();
+
+            const unit = core.nuts.CurrencyUnit.sat;
+
+            const ln_key = LnKey.init(unit, .bolt11);
+
+            try ln_backends.put(ln_key, ln_mint);
+
+            try supported_units.put(unit, .{ input_fee_ppk, 64 });
+
+            const webhook_router = try lnbits.client.createInvoiceWebhookRouter(
+                gpa.allocator(),
+                webhook_endpoint,
+                chan.retain(),
+            );
+
+            try global_handler.router.append(webhook_router);
+        },
         .fake_wallet => {
             const units = (parsed_settings.value.fake_wallet orelse config.FakeWallet{}).supported_units;
 
@@ -170,10 +254,10 @@ pub fn main() !void {
                 try supported_units.put(unit, .{ input_fee_ppk, 64 });
             }
         },
-        else => {
-            // not implemented backends
-            unreachable;
-        },
+        // else => {
+        //     // not implemented backends
+        //     unreachable;
+        // },
     }
 
     var nuts = core.nuts.Nuts{};
@@ -256,26 +340,22 @@ pub fn main() !void {
     // }
     // TODO
 
-    const mint_url = parsed_settings.value.info.url;
-    const listen_addr = parsed_settings.value.info.listen_host;
-    const listen_port = parsed_settings.value.info.listen_port;
     const quote_ttl = parsed_settings.value
         .info
         .seconds_quote_is_valid_for orelse default_quote_ttl_secs;
 
     // start serevr
-    var srv = try router.createMintServer(gpa.allocator(), mint_url, &mint, ln_backends, quote_ttl, .{
-        .port = listen_port,
-        .address = listen_addr,
-    }, &.{
-        .{
-            httpz.middleware.Cors, .{
-                .origin = "*",
-                .headers = "*",
-            },
-        },
-    });
-    defer srv.deinit();
+    const mint_router = try router.createMintServer(
+        gpa.allocator(),
+        mint_url,
+        &mint,
+        ln_backends,
+        quote_ttl,
+    );
+
+    // adding routers
+    try global_handler.router.append(mint_router);
+    // TODO add router for backend with webhooks
 
     // add lnn router here to server
     try handleInterrupt(&srv);
@@ -288,13 +368,25 @@ pub fn main() !void {
         errdefer for (threads.items) |t| t.detach();
 
         const thread_fn = (struct {
-            fn handleLnInvoice(m: *Mint, wait_ch: Channel(std.ArrayList(u8)).Rx) void {
-                while (true) {
-                    var request_lookup_id = wait_ch.recv();
-                    defer request_lookup_id.deinit();
+            fn handleLnInvoice(m: *Mint, wait_ch: ref.Arc(mpmc.UnboundedChannel(std.ArrayList(u8)))) void {
+                defer wait_ch.releaseWithFn((struct {
+                    fn deinit(_self: mpmc.UnboundedChannel(std.ArrayList(u8))) void {
+                        _self.deinit();
+                    }
+                }).deinit);
 
-                    handlePaidInvoice(m, request_lookup_id.items) catch |err| {
-                        std.log.warn("handle paid invoice error, lookup_id {s}, err={s}", .{ request_lookup_id.items, @errorName(err) });
+                var receiver = wait_ch.value.receiver() catch return;
+
+                while (true) {
+                    var request_lookup_id = receiver.recv() orelse unreachable;
+                    defer request_lookup_id.releaseWithFn((struct {
+                        fn deinit(_self: std.ArrayList(u8)) void {
+                            _self.deinit();
+                        }
+                    }).deinit);
+
+                    handlePaidInvoice(m, request_lookup_id.value.items) catch |err| {
+                        std.log.warn("handle paid invoice error, lookup_id {s}, err={s}", .{ request_lookup_id.value.items, @errorName(err) });
                         continue;
                     };
                 }
@@ -304,7 +396,7 @@ pub fn main() !void {
         var it = ln_backends.iterator();
         while (it.next()) |ln_entry| {
             threads.appendAssumeCapacity(try std.Thread.spawn(.{}, thread_fn, .{
-                &mint, try ln_entry.value_ptr.waitAnyInvoice(),
+                &mint, ln_entry.value_ptr.waitAnyInvoice(),
             }));
         }
         break :v threads;
@@ -320,9 +412,9 @@ pub fn main() !void {
     std.log.info("Stopped server", .{});
 }
 
-pub fn handleInterrupt(srv: *httpz.Server(MintState)) !void {
+pub fn handleInterrupt(srv: *httpz.Server(*http_router.GlobalRouter)) !void {
     const signal = struct {
-        var _srv: *httpz.Server(MintState) = undefined;
+        var _srv: *httpz.Server(*http_router.GlobalRouter) = undefined;
 
         fn handler(sig: c_int) callconv(.C) void {
             std.debug.assert(sig == std.posix.SIG.INT);

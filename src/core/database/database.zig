@@ -32,14 +32,14 @@ pub const MintDatabase = struct {
     getMintQuoteFn: *const fn (ptr: *anyopaque, gpa: std.mem.Allocator, quote_id: zul.UUID) anyerror!?MintQuote,
     updateMintQuoteStateFn: *const fn (ptr: *anyopaque, quote_id: zul.UUID, state: nuts.nut04.QuoteState) anyerror!nuts.nut04.QuoteState,
     getMintQuotesFn: *const fn (ptr: *anyopaque, allocator: std.mem.Allocator) anyerror!std.ArrayList(MintQuote),
-    getMintQuoteByRequestLookupIdFn: *const fn (ptr: *anyopaque, gpa: std.mem.Allocator, request_lookup_id: zul.UUID) anyerror!?MintQuote,
+    getMintQuoteByRequestLookupIdFn: *const fn (ptr: *anyopaque, gpa: std.mem.Allocator, request_lookup_id: []const u8) anyerror!?MintQuote,
     getMintQuoteByRequestFn: *const fn (ptr: *anyopaque, gpa: std.mem.Allocator, request: []const u8) anyerror!?MintQuote,
     removeMintQuoteStateFn: *const fn (ptr: *anyopaque, quote_id: zul.UUID) anyerror!void,
     addMeltQuoteFn: *const fn (ptr: *anyopaque, quote: MeltQuote) anyerror!void,
     getMeltQuoteFn: *const fn (ptr: *anyopaque, gpa: std.mem.Allocator, quote_id: zul.UUID) anyerror!?MeltQuote,
     updateMeltQuoteStateFn: *const fn (ptr: *anyopaque, quote_id: zul.UUID, state: nuts.nut05.QuoteState) anyerror!nuts.nut05.QuoteState,
     getMeltQuotesFn: *const fn (ptr: *anyopaque, gpa: std.mem.Allocator) anyerror!std.ArrayList(MeltQuote),
-    getMeltQuoteByRequestLookupIdFn: *const fn (ptr: *anyopaque, gpa: std.mem.Allocator, request_lookup_id: zul.UUID) anyerror!?MeltQuote,
+    getMeltQuoteByRequestLookupIdFn: *const fn (ptr: *anyopaque, gpa: std.mem.Allocator, request_lookup_id: []const u8) anyerror!?MeltQuote,
     getMeltQuoteByRequestFn: *const fn (ptr: *anyopaque, gpa: std.mem.Allocator, request: []const u8) anyerror!?MeltQuote,
     removeMeltQuoteStateFn: *const fn (ptr: *anyopaque, quote_id: zul.UUID) anyerror!void,
     addProofsFn: *const fn (ptr: *anyopaque, proofs: []const nuts.Proof) anyerror!void,
@@ -129,7 +129,7 @@ pub const MintDatabase = struct {
                 const self: *T = @ptrCast(@alignCast(pointer));
                 return self.getMintQuotes(gpa);
             }
-            pub fn getMintQuoteByRequestLookupId(pointer: *anyopaque, gpa: std.mem.Allocator, request_lookup_id: zul.UUID) anyerror!?MintQuote {
+            pub fn getMintQuoteByRequestLookupId(pointer: *anyopaque, gpa: std.mem.Allocator, request_lookup_id: []const u8) anyerror!?MintQuote {
                 const self: *T = @ptrCast(@alignCast(pointer));
                 return self.getMintQuoteByRequestLookupId(gpa, request_lookup_id);
             }
@@ -157,7 +157,7 @@ pub const MintDatabase = struct {
                 const self: *T = @ptrCast(@alignCast(pointer));
                 return self.getMeltQuotes(gpa);
             }
-            pub fn getMeltQuoteByRequestLookupId(pointer: *anyopaque, gpa: std.mem.Allocator, request_lookup_id: zul.UUID) anyerror!?MeltQuote {
+            pub fn getMeltQuoteByRequestLookupId(pointer: *anyopaque, gpa: std.mem.Allocator, request_lookup_id: []const u8) anyerror!?MeltQuote {
                 const self: *T = @ptrCast(@alignCast(pointer));
                 return self.getMeltQuoteByRequestLookupId(gpa, request_lookup_id);
             }
@@ -332,7 +332,7 @@ pub const MintDatabase = struct {
     pub fn getMintQuotes(self: Self, allocator: std.mem.Allocator) anyerror!std.ArrayList(MintQuote) {
         return self.getMintQuotesFn(self.ptr, allocator);
     }
-    pub fn getMintQuoteByRequestLookupId(self: Self, gpa: std.mem.Allocator, request_lookup_id: zul.UUID) anyerror!?MintQuote {
+    pub fn getMintQuoteByRequestLookupId(self: Self, gpa: std.mem.Allocator, request_lookup_id: []const u8) anyerror!?MintQuote {
         return self.getMintQuoteByRequestLookupIdFn(self.ptr, gpa, request_lookup_id);
     }
     pub fn getMintQuoteByRequest(self: Self, gpa: std.mem.Allocator, request: []const u8) anyerror!?MintQuote {
@@ -353,7 +353,7 @@ pub const MintDatabase = struct {
     pub fn getMeltQuotes(self: Self, gpa: std.mem.Allocator) anyerror!std.ArrayList(MeltQuote) {
         return self.getMeltQuotesFn(self.ptr, gpa);
     }
-    pub fn getMeltQuoteByRequestLookupId(self: Self, gpa: std.mem.Allocator, request_lookup_id: zul.UUID) anyerror!?MeltQuote {
+    pub fn getMeltQuoteByRequestLookupId(self: Self, gpa: std.mem.Allocator, request_lookup_id: []const u8) anyerror!?MeltQuote {
         return self.getMeltQuoteByRequestLookupIdFn(self.ptr, gpa, request_lookup_id);
     }
     pub fn getMeltQuoteByRequest(self: Self, gpa: std.mem.Allocator, request: []const u8) anyerror!?MeltQuote {

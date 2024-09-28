@@ -11,8 +11,7 @@ pub const Settings = struct {
     info: Info,
     mint_info: MintInfo,
     ln: Ln,
-    cln: ?Cln,
-    strike: ?Strike,
+    lnbits: ?Lnbits,
     fake_wallet: ?FakeWallet,
     database: Database,
 
@@ -66,15 +65,12 @@ pub const MintInfo = struct {
 
 pub const LnBackend = enum {
     // default
-    cln,
-    strike,
     fake_wallet,
-    //  Greenlight,
-    //  Ldk,
+    lnbits,
 };
 
 pub const Ln = struct {
-    ln_backend: LnBackend = .cln,
+    ln_backend: LnBackend = .lnbits,
     invoice_description: ?[]const u8,
     fee_percent: f32,
     reserve_fee_min: Amount,
@@ -87,6 +83,12 @@ pub const Strike = struct {
 
 pub const Cln = struct {
     rpc_path: []const u8,
+};
+
+pub const Lnbits = struct {
+    admin_api_key: []const u8,
+    invoice_api_key: []const u8,
+    lnbits_api: []const u8,
 };
 
 pub const FakeWallet = struct {

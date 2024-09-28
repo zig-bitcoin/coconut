@@ -5,6 +5,7 @@ const std = @import("std");
 const router_handlers = @import("router_handlers.zig");
 const zul = @import("zul");
 const fake_wallet = @import("../fake_wallet/fake_wallet.zig");
+const http_router = @import("../misc/http_router/http_router.zig");
 
 const MintLightning = core.lightning.MintLightning;
 const Mint = core.mint.Mint;
@@ -21,9 +22,7 @@ pub fn createMintServer(
     mint: *Mint,
     ln: LnBackendsMap,
     quote_ttl: u64,
-    server_options: httpz.Config,
-    middlewares: anytype,
-) !httpz.Server(MintState) {
+) !http_router.Router {
     // TODO do we need copy
     const state = MintState{
         .mint = mint,
@@ -32,19 +31,7 @@ pub fn createMintServer(
         .ln = ln,
     };
 
-    var srv = try httpz.Server(MintState).init(allocator, server_options, state);
-    errdefer srv.deinit();
-
-    var _middlewares = try srv.arena.alloc(httpz.Middleware(MintState), middlewares.len);
-
-    inline for (middlewares, 0..) |m, i| {
-        _middlewares[i] = try srv.middleware(m[0], m[1]);
-    }
-
-    // apply routes
-    var router = srv.router(.{
-        .middlewares = _middlewares,
-    });
+    var router = try httpz.Router(MintState, httpz.Action(MintState)).init(allocator, MintState.dispatcher, state);
 
     router.get("/v1/keys", router_handlers.getKeys, .{});
     router.get("/v1/keysets", router_handlers.getKeysets, .{});
@@ -59,7 +46,10 @@ pub fn createMintServer(
     router.post("/v1/mint/bolt11", router_handlers.postMintBolt11, .{});
     router.post("/v1/melt/bolt11", router_handlers.postMeltBolt11, .{});
     router.post("/v1/swap", router_handlers.postSwap, .{});
-    return srv;
+
+    const _router = try http_router.Router.initFrom(MintState, allocator, router);
+
+    return _router;
 }
 
 pub const LnKeyContext = struct {
@@ -86,6 +76,8 @@ pub const MintState = struct {
     mint: *Mint,
     mint_url: []const u8,
     quote_ttl: u64,
+
+    pub usingnamespace http_router.DefaultDispatcher(@This());
 
     pub fn uncaughtError(self: *const MintState, req: *httpz.Request, res: *httpz.Response, err: anyerror) void {
         _ = self; // autofix

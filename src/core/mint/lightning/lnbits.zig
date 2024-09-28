@@ -1,16 +1,22 @@
 const std = @import("std");
 const core = @import("../../lib.zig");
 const lightning_invoice = @import("../../../lightning_invoices/invoice.zig");
+const httpz = @import("httpz");
+const zul = @import("zul");
+const ref = @import("../../../sync/ref.zig");
+const mpmc = @import("../../../sync/mpmc.zig");
+const http_router = @import("../../../misc/http_router/http_router.zig");
 
 const Amount = core.amount.Amount;
 const PaymentQuoteResponse = core.lightning.PaymentQuoteResponse;
 // const CreateInvoiceResponse = core.lightning.CreateInvoiceResponse;
 const MeltQuoteBolt11Request = core.nuts.nut05.MeltQuoteBolt11Request;
 const MintMeltSettings = core.lightning.MintMeltSettings;
-const MeltQuoteState = core.nuts.nut04.QuoteState;
+const MeltQuoteState = core.nuts.nut05.QuoteState;
 const MintQuoteState = core.nuts.nut04.QuoteState;
 const FeeReserve = core.mint.FeeReserve;
 const Channel = @import("../../../channels/channels.zig").Channel;
+const MintLightning = core.lightning.MintLightning;
 
 pub const HttpError = std.http.Client.RequestError || std.http.Client.Request.FinishError || std.http.Client.Request.WaitError || error{ ReadBodyError, WrongJson };
 
@@ -20,18 +26,16 @@ pub const LightningError = HttpError || std.Uri.ParseError || std.mem.Allocator.
     PaymentFailed,
 };
 
-pub const Settings = struct {
-    admin_key: ?[]const u8,
-    url: ?[]const u8,
-};
-
 pub const LnBits = struct {
     const Self = @This();
 
     client: LNBitsClient,
 
-    chan: *Channel(std.ArrayList(u8)) = undefined, // we using signle channel for sending invoices
+    chan: ref.Arc(mpmc.UnboundedChannel(std.ArrayList(u8))), // we using signle channel for sending invoices
     allocator: std.mem.Allocator,
+    fee_reserve: FeeReserve,
+
+    webhook_url: ?[]const u8,
 
     mint_settings: MintMeltSettings = .{},
     melt_settings: MintMeltSettings = .{},
@@ -39,20 +43,33 @@ pub const LnBits = struct {
     pub fn init(
         allocator: std.mem.Allocator,
         admin_key: []const u8,
+        invoice_api_key: []const u8,
         lnbits_url: []const u8,
         mint_settings: MintMeltSettings,
         melt_settings: MintMeltSettings,
+        fee_reserve: FeeReserve,
+        chan: ref.Arc(mpmc.UnboundedChannel(std.ArrayList(u8))),
+        webhook_url: ?[]const u8,
     ) !@This() {
-        const ch = try Channel(std.ArrayList(u8)).init(allocator, 10);
-        errdefer ch.deinit();
-
         return .{
-            .chan = ch,
             .allocator = allocator,
-            .client = try LNBitsClient.init(allocator, admin_key, lnbits_url),
+            .client = try LNBitsClient.init(
+                allocator,
+                admin_key,
+                invoice_api_key,
+                lnbits_url,
+            ),
             .mint_settings = mint_settings,
             .melt_settings = melt_settings,
+            .fee_reserve = fee_reserve,
+            .chan = chan,
+
+            .webhook_url = webhook_url,
         };
+    }
+
+    pub fn toMintLightning(self: *const Self, gpa: std.mem.Allocator) error{OutOfMemory}!MintLightning {
+        return MintLightning.initFrom(Self, gpa, self.*);
     }
 
     pub fn getSettings(self: *const Self) core.lightning.Settings {
@@ -105,6 +122,11 @@ pub const LnBits = struct {
 
     pub fn deinit(self: *@This()) void {
         self.client.deinit();
+        self.chan.releaseWithFn((struct {
+            fn deinit(_self: mpmc.UnboundedChannel(std.ArrayList(u8))) void {
+                _self.deinit();
+            }
+        }).deinit);
     }
 
     pub fn isInvoicePaid(self: *@This(), allocator: std.mem.Allocator, invoice: []const u8) !bool {
@@ -115,14 +137,14 @@ pub const LnBits = struct {
     }
 
     pub fn checkInvoiceStatus(
-        self: *const Self,
+        self: *Self,
         _request_lookup_id: []const u8,
     ) !MintQuoteState {
-        if (try self.client.isInvoicePaid(self.allocator, _request_lookup_id)) .paid else .unpaid;
+        return if (try self.client.isInvoicePaid(self.allocator, _request_lookup_id)) .paid else .unpaid;
     }
 
     pub fn createInvoice(
-        self: *const Self,
+        self: *Self,
         gpa: std.mem.Allocator,
         amount: Amount,
         unit: core.nuts.CurrencyUnit,
@@ -136,14 +158,14 @@ pub const LnBits = struct {
 
         const amnt = try core.lightning.toUnit(amount, unit, .sat);
 
-        const expiry = unix_expiry - time_now;
+        const expiry = unix_expiry - @abs(time_now);
 
         const create_invoice_response = try self.client.createInvoice(gpa, .{
             .amount = amnt,
             .unit = unit.toString(),
             .memo = description,
             .expiry = expiry,
-            .webhook = null, // TODO webhook url
+            .webhook = self.webhook_url,
             .internal = null,
             .out = false,
         });
@@ -163,7 +185,7 @@ pub const LnBits = struct {
     }
 
     pub fn payInvoice(
-        self: Self,
+        self: *Self,
         arena: std.mem.Allocator,
         melt_quote: core.mint.MeltQuote,
         _: ?Amount,
@@ -171,15 +193,19 @@ pub const LnBits = struct {
     ) !core.lightning.PayInvoiceResponse {
         const pay_response = try self.client.payInvoice(arena, melt_quote.request);
 
-        const invoice_info = try self.client.findInvoice(arena, pay_response.payment_hash);
+        const invoices_info = try self.client.findInvoice(arena, pay_response.payment_hash);
 
-        const status: MeltQuoteState = if (invoice_info.value.pending) .unpaid else .paid;
+        if (invoices_info.value.len == 0) return error.InvoiceNotFound;
 
-        const total_spent = @abs(invoice_info.value.amount + invoice_info.value.fee);
+        const invoice_info = invoices_info.value[0];
+
+        const status: MeltQuoteState = if (invoice_info.pending) .unpaid else .paid;
+
+        const total_spent = @abs(invoice_info.amount + invoice_info.fee);
 
         return .{
             .payment_hash = pay_response.payment_hash,
-            .payment_preimage = invoice_info.value.payment_hash,
+            .payment_preimage = invoice_info.payment_hash,
             .status = status,
             .total_spent = total_spent,
             .unit = .sat,
@@ -188,24 +214,24 @@ pub const LnBits = struct {
 
     // Result is channel with invoices, caller must free result
     pub fn waitAnyInvoice(
-        self: *const Self,
-    ) !Channel(std.ArrayList(u8)).Rx {
-        return self.chan.getRx();
+        self: *Self,
+    ) ref.Arc(mpmc.UnboundedChannel(std.ArrayList(u8))) {
+        return self.chan.retain();
     }
 };
 
 pub const LNBitsClient = struct {
     admin_key: []const u8,
-    lnbits_url: std.Uri,
+    invoice_api_key: []const u8,
+    lnbits_url: []const u8,
     client: std.http.Client,
 
     pub fn init(
         allocator: std.mem.Allocator,
         admin_key: []const u8,
+        invoice_api_key: []const u8,
         lnbits_url: []const u8,
     ) !LNBitsClient {
-        const url = try std.Uri.parse(lnbits_url);
-
         var client = std.http.Client{
             .allocator = allocator,
         };
@@ -213,7 +239,8 @@ pub const LNBitsClient = struct {
 
         return .{
             .admin_key = admin_key,
-            .lnbits_url = url,
+            .lnbits_url = lnbits_url,
+            .invoice_api_key = invoice_api_key,
             .client = client,
         };
     }
@@ -228,15 +255,13 @@ pub const LNBitsClient = struct {
         allocator: std.mem.Allocator,
         endpoint: []const u8,
     ) LightningError![]const u8 {
-        var buf: [100]u8 = undefined;
-        var b: []u8 = buf[0..];
-
-        const uri = self.lnbits_url.resolve_inplace(endpoint, &b) catch return std.Uri.ParseError.UnexpectedCharacter;
+        const uri = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ self.lnbits_url, endpoint });
+        defer allocator.free(uri);
 
         const header_buf = try allocator.alloc(u8, 1024 * 1024 * 4);
         defer allocator.free(header_buf);
 
-        var req = try self.client.open(.GET, uri, .{
+        var req = try self.client.open(.GET, try std.Uri.parse(uri), .{
             .server_header_buffer = header_buf,
             .extra_headers = &.{
                 .{
@@ -271,15 +296,15 @@ pub const LNBitsClient = struct {
         endpoint: []const u8,
         req_body: []const u8,
     ) LightningError![]const u8 {
-        var buf: [100]u8 = undefined;
-        var b: []u8 = buf[0..];
-
-        const uri = self.lnbits_url.resolve_inplace(endpoint, &b) catch return std.Uri.ParseError.UnexpectedCharacter;
+        const uri = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ self.lnbits_url, endpoint });
+        defer allocator.free(uri);
 
         const header_buf = try allocator.alloc(u8, 1024 * 1024 * 4);
         defer allocator.free(header_buf);
 
-        var req = try self.client.open(.POST, uri, .{
+        std.log.debug("uri: {s}", .{uri});
+
+        var req = try self.client.open(.POST, try std.Uri.parse(uri), .{
             .server_header_buffer = header_buf,
             .extra_headers = &.{
                 .{
@@ -320,9 +345,15 @@ pub const LNBitsClient = struct {
     /// createInvoice - creating invoice
     /// note: after success call u need to call deinit on result using alloactor that u pass as argument to this func.
     pub fn createInvoice(self: *@This(), allocator: std.mem.Allocator, params: CreateInvoiceRequest) !CreateInvoiceResponse {
-        const req_body = try std.json.stringifyAlloc(allocator, &params, .{});
+        const req_body = try std.json.stringifyAlloc(allocator, &params, .{
+            .emit_null_optional_fields = false,
+        });
+
+        std.log.debug("request {s}", .{req_body});
 
         const res = try self.post(allocator, "api/v1/payments", req_body);
+
+        std.log.debug("create invoice, response : {s}", .{res});
 
         const parsed = std.json.parseFromSlice(std.json.Value, allocator, res, .{ .allocate = .alloc_always }) catch return error.WrongJson;
 
@@ -378,7 +409,11 @@ pub const LNBitsClient = struct {
 
     /// isInvoicePaid - paying invoice
     /// note: after success call u need to call deinit on result using alloactor that u pass as argument to this func.
-    pub fn isInvoicePaid(self: *@This(), allocator: std.mem.Allocator, payment_hash: []const u8) !bool {
+    pub fn isInvoicePaid(
+        self: *@This(),
+        allocator: std.mem.Allocator,
+        payment_hash: []const u8,
+    ) !bool {
         const endpoint = try std.fmt.allocPrint(
             allocator,
             "api/v1/payments/{s}",
@@ -402,18 +437,64 @@ pub const LNBitsClient = struct {
         self: *@This(),
         allocator: std.mem.Allocator,
         checking_id: []const u8,
-    ) !std.json.Parsed(FindInvoiceResponse) {
+    ) !std.json.Parsed([]const FindInvoiceResponse) {
         const endpoint = try std.fmt.allocPrint(
             allocator,
-            "api/v1/payments?checking_id={s}",
+            "api/v1/payments?checking_id=internal_{s}",
             .{checking_id},
         );
         defer allocator.free(endpoint);
 
         const res = try self.get(allocator, endpoint);
 
-        return std.json.parseFromSlice(FindInvoiceResponse, allocator, res, .{ .allocate = .alloc_always }) catch return error.WrongJson;
+        return std.json.parseFromSlice([]const FindInvoiceResponse, allocator, res, .{ .allocate = .alloc_always }) catch return error.WrongJson;
     }
+
+    /// Create invoice webhook
+    pub fn createInvoiceWebhookRouter(
+        _: *@This(),
+        allocator: std.mem.Allocator,
+        webhook_endpoint: []const u8,
+        chan: ref.Arc(mpmc.UnboundedChannel(std.ArrayList(u8))),
+    ) !http_router.Router {
+        const state = WebhookState{
+            .chan = chan,
+            .allocator = allocator,
+        };
+        var router = try httpz.Router(WebhookState, httpz.Action(WebhookState)).init(allocator, WebhookState.dispatcher, state);
+
+        router.post(webhook_endpoint, handleInvoice, .{});
+
+        return try http_router.Router.initFrom(WebhookState, allocator, router);
+    }
+};
+
+pub fn handleInvoice(
+    state: WebhookState,
+    req: *httpz.Request,
+    res: *httpz.Response,
+) !void {
+    std.log.debug("incoming webhook, body : {s}", .{req.body().?});
+    const webhook_response = if (try req.json(FindInvoiceResponse)) |resp| resp else {
+        res.status = 422;
+        return;
+    };
+
+    std.log.debug("Received webhook update for: {s}", .{webhook_response.checking_id});
+
+    var sender = try state.chan.value.sender();
+
+    try sender.send(std.ArrayList(u8).fromOwnedSlice(state.allocator, try state.allocator.dupe(u8, webhook_response.checking_id)));
+}
+
+/// Webhook state
+pub const WebhookState = struct {
+    /// allocator to allocate webhook messages
+    allocator: std.mem.Allocator,
+    /// chan, where we took sender
+    chan: ref.Arc(mpmc.UnboundedChannel(std.ArrayList(u8))),
+
+    pub usingnamespace http_router.DefaultDispatcher(@This());
 };
 
 /// Create invoice request
@@ -442,6 +523,8 @@ pub const PayInvoiceResponse = struct {
 
 /// Find invoice response
 pub const FindInvoiceResponse = struct {
+    /// status
+    status: []const u8,
     /// Checking id
     checking_id: []const u8,
     /// Pending (paid)
@@ -463,7 +546,7 @@ pub const FindInvoiceResponse = struct {
     /// Expiry
     expiry: f64,
     /// Extra
-    extra: std.json.ObjectMap,
+    extra: std.json.Value, // should be object map
     /// Wallet id
     wallet_id: []const u8,
     /// Webhook url
