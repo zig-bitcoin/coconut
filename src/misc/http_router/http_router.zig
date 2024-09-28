@@ -102,7 +102,10 @@ test "ttt" {
 
     const SomeHandlerRouter = httpz.Router(SomeHandler, httpz.Action(SomeHandler));
 
-    var some_router = try SomeHandlerRouter.init(std.testing.allocator, SomeHandler.dispatcher, sh);
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    var some_router = try SomeHandlerRouter.init(arena.allocator(), SomeHandler.dispatcher, sh);
     some_router.get("/test14", SomeHandler.testik, .{});
 
     const ht = @import("httpz").testing;
@@ -112,6 +115,7 @@ test "ttt" {
     defer router.router.deinit();
 
     const c_handler = try Router.initFrom(SomeHandler, std.testing.allocator, some_router);
+    defer c_handler.deinit();
 
     try router.router.append(c_handler);
 

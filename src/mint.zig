@@ -176,6 +176,9 @@ pub fn main() !void {
         ln_backends.deinit();
     }
 
+    var arena = std.heap.ArenaAllocator.init(gpa.allocator());
+    defer arena.deinit();
+
     // TODO set ln router
     // additional routers for httpz server
     switch (parsed_settings.value.ln.ln_backend) {
@@ -230,7 +233,7 @@ pub fn main() !void {
             try supported_units.put(unit, .{ input_fee_ppk, 64 });
 
             const webhook_router = try lnbits.client.createInvoiceWebhookRouter(
-                gpa.allocator(),
+                arena.allocator(),
                 webhook_endpoint,
                 chan.retain(),
             );
@@ -346,7 +349,7 @@ pub fn main() !void {
 
     // start serevr
     const mint_router = try router.createMintServer(
-        gpa.allocator(),
+        arena.allocator(),
         mint_url,
         &mint,
         ln_backends,
