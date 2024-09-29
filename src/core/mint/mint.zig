@@ -690,7 +690,7 @@ pub const Mint = struct {
 
         try self.localstore
             .value
-            .addBlindSignatures(blinded_messages.items, blind_signatures.items);
+            .addBlindSignatures(blinded_messages.items, blind_signatures.items, &mint_request.quote);
 
         _ = try self.localstore.value.updateMintQuoteState(quote_id, .issued);
 
@@ -935,6 +935,7 @@ pub const Mint = struct {
             .addBlindSignatures(
             blinded_messages.items,
             promises.items,
+            null,
         );
 
         return .{
@@ -1204,6 +1205,7 @@ pub const Mint = struct {
                     .addBlindSignatures(
                     blinded_messages.items,
                     change_sigs.items,
+                    melt_request.quote,
                 );
 
                 change = change_sigs;

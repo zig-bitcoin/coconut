@@ -79,6 +79,8 @@ pub fn main() !void {
 
     const config_path = clap_res.args.config orelse "config.toml";
 
+    // TODO add work dir
+
     var parsed_settings = try config.Settings.initFromToml(gpa.allocator(), config_path);
     defer parsed_settings.deinit();
 
@@ -98,6 +100,12 @@ pub fn main() !void {
 
             break :v try MintDatabase.initFrom(MintMemoryDatabase, gpa.allocator(), db);
         },
+        // inline .sqlite => v: {
+        //     var db = try core.mint_memory.MintSqliteDatabase.initFrom(gpa.allocator(), "./cdk-mintd.sqlite");
+        //     errdefer db.deinit();
+
+        //     break :v try MintDatabase.initFrom(core.mint_memory.MintSqliteDatabase, gpa.allocator(), db);
+        // },
         else => {
             // not implemented engine
             unreachable;

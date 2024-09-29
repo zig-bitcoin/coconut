@@ -13,7 +13,7 @@ const MintKeys = @import("../nut01/nut01.zig").MintKeys;
 const MintKeyPair = @import("../nut01/nut01.zig").MintKeyPair;
 
 /// Keyset version
-pub const KeySetVersion = enum {
+pub const KeySetVersion = enum(u8) {
     /// Current Version 00
     version00,
 

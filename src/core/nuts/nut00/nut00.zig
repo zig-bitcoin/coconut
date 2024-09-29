@@ -84,6 +84,13 @@ pub const Witness = union(enum) {
         return undefined;
     }
 
+    pub fn jsonStringify(self: *const Witness, out: anytype) !void {
+        switch (self.*) {
+            inline .htlc_witness => |w| try out.print("{s}", .{std.json.fmt(w, .{})}),
+            inline .p2pk_witness => |w| try out.print("{s}", .{std.json.fmt(w, .{})}),
+        }
+    }
+
     pub fn jsonParse(allocator: std.mem.Allocator, _source: anytype, options: std.json.ParseOptions) !@This() {
         const parsed = try std.json.innerParse(std.json.Value, allocator, _source, options);
 

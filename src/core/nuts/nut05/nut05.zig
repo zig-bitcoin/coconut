@@ -60,7 +60,7 @@ pub const QuoteState = enum {
 
         return QuoteState.fromString(state) catch {
             std.log.debug("wrong state value: {s}", .{state});
-            return error.UnexpectedError;
+            return error.UnexpectedToken;
         };
     }
 };

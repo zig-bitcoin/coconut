@@ -90,7 +90,7 @@ test "ttt" {
 
         pub usingnamespace DefaultDispatcher(@This());
 
-        pub fn testik(self: @This(), req: *httpz.Request, res: *httpz.Response) !void {
+        pub fn test_func(self: @This(), req: *httpz.Request, res: *httpz.Response) !void {
             _ = req; // autofix
             res.body = self.s;
         }
@@ -106,7 +106,7 @@ test "ttt" {
     defer arena.deinit();
 
     var some_router = try SomeHandlerRouter.init(arena.allocator(), SomeHandler.dispatcher, sh);
-    some_router.get("/test14", SomeHandler.testik, .{});
+    some_router.get("/test14", SomeHandler.test_func, .{});
 
     const ht = @import("httpz").testing;
     var router = GlobalRouter{

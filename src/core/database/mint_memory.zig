@@ -540,13 +540,17 @@ pub const MintMemoryDatabase = struct {
         self: *Self,
         blinded_messages: []const secp256k1.PublicKey,
         blind_signatures: []const nuts.BlindSignature,
+        quote_id: ?[]const u8,
     ) !void {
+        _ = quote_id; // autofix
         self.lock.lock();
         defer self.lock.unlock();
 
         for (blinded_messages, blind_signatures) |blinded_message, blind_signature| {
             try self.blinded_signatures.put(blinded_message.serialize(), blind_signature);
         }
+
+        // TODO quote signatures
     }
 
     pub fn getBlindSignatures(

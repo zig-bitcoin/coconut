@@ -33,6 +33,16 @@ fn initializeDB(conn: sqlite.Conn) !void {
         \\ CREATE INDEX IF NOT EXISTS secret_index ON proof(secret);
         \\CREATE TABLE if not exists proof_states ( id BLOB PRIMARY KEY, proof INTEGER);
         \\CREATE TABLE if not exists blind_signatures ( id BLOB PRIMARY KEY, blind_signature BLOB);
+        \\
+        \\ CREATE TABLE IF NOT EXISTS blind_signature (
+        \\     y BLOB PRIMARY KEY,
+        \\     amount INTEGER NOT NULL,
+        \\     keyset_id TEXT NOT NULL,
+        \\     quote_id TEXT,
+        \\     c BLOB NOT NULL
+        \\ );
+        \\ 
+        \\ CREATE INDEX IF NOT EXISTS keyset_id_index ON blind_signature(keyset_id);
     ;
 
     try conn.execNoArgs(sql);
@@ -47,13 +57,13 @@ pub const Database = struct {
     pool: sqlite.Pool,
 
     pub fn deinit(self: *Database) void {
-        _ = self; // autofix
+        self.pool.deinit();
     }
 
     /// initFrom - take own on all data there, except slices (only own data in slices)
     pub fn initFrom(
         allocator: std.mem.Allocator,
-        path: []const u8,
+        path: [*:0]const u8,
     ) !Database {
         const pool = try sqlite.Pool.init(allocator, .{
             .size = 5,
@@ -71,18 +81,19 @@ pub const Database = struct {
         var conn = self.pool.acquire();
         defer self.pool.release(conn);
 
-        try conn.exec("UPSERT INTO active_keysets (currency_unit, id) VALUES (?1, ?2);", .{ @intFromEnum(unit), sqlite.blob(std.mem.asBytes(id)) });
+        try conn.exec("UPSERT INTO active_keysets (currency_unit, id) VALUES (?1, ?2);", .{ @intFromEnum(unit), sqlite.blob(&id.toString()) });
     }
 
     pub fn getActiveKeysetId(self: *Self, unit: nuts.CurrencyUnit) ?nuts.Id {
         var conn = self.pool.acquire();
         defer self.pool.release(conn);
 
-        if (try conn.row("SELECT id FROM active_keysets WHERE currency_unit = ?1", .{@intFromEnum(unit)})) |row| {
+        if (conn.row("SELECT id FROM active_keysets WHERE currency_unit = ?1", .{@intFromEnum(unit)}) catch return null) |row| {
             defer row.deinit(); // must be called
             const id_blob = row.blob(0);
 
-            const id: nuts.Id = @bitCast(id_blob);
+            const id = nuts.Id.fromStr(id_blob) catch unreachable;
+
             return id;
         }
 
@@ -94,7 +105,7 @@ pub const Database = struct {
         var conn = self.pool.acquire();
         defer self.pool.release(conn);
 
-        const rows = try conn.rows("SELECT id, currency_nuit FROM active_keysets", .{});
+        var rows = try conn.rows("SELECT id, currency_nuit FROM active_keysets", .{});
         defer rows.deinit();
 
         var result = std.AutoHashMap(nuts.CurrencyUnit, nuts.Id).init(allocator);
@@ -105,11 +116,13 @@ pub const Database = struct {
 
             const id_blob = row.blob(0);
 
-            const id: nuts.Id = @bitCast(id_blob);
+            const id = nuts.Id.fromStr(id_blob) catch unreachable;
             const unit: nuts.CurrencyUnit = @enumFromInt(row.int(1));
 
             try result.put(unit, id);
         }
+
+        return result;
     }
 
     /// keyset inside is cloned, so caller own keyset
@@ -121,7 +134,7 @@ pub const Database = struct {
         defer self.allocator.free(keyset_encoded);
 
         try conn.exec("UPSERT INTO keysets (id, keyset_info) VALUES (?1, ?2);", .{
-            sqlite.blob(std.mem.asBytes(keyset.id)),
+            sqlite.blob(&keyset.id.toBytes()),
             sqlite.blob(keyset_encoded),
         });
     }
@@ -132,7 +145,7 @@ pub const Database = struct {
         defer self.pool.release(conn);
 
         if (try conn.row("SELECT keyset_info FROM keysets WHERE id = ?1", .{
-            sqlite.blob(std.mem.asBytes(keyset_id)),
+            sqlite.blob(&keyset_id.toBytes()),
         })) |row| {
             defer row.deinit(); // must be called
             const keyset_info_encoded = row.blob(0);
@@ -153,9 +166,9 @@ pub const Database = struct {
         var res = try Arened(std.ArrayList(MintKeySetInfo)).init(allocator);
         errdefer res.deinit();
 
-        res.value = try std.ArrayList(MintKeySetInfo).initCapacity(res.arena.allocator(), self.keysets.count());
+        res.value = std.ArrayList(MintKeySetInfo).init(res.arena.allocator());
 
-        const rows = try conn.rows("SELECT id, keyset_info FROM keysets", .{});
+        var rows = try conn.rows("SELECT id, keyset_info FROM keysets", .{});
         defer rows.deinit();
 
         while (rows.next()) |row| {
@@ -180,7 +193,7 @@ pub const Database = struct {
         defer self.allocator.free(quote_json);
 
         try conn.exec("UPSERT INTO mint_quote (id, quote) VALUES (?1, ?2);", .{
-            sqlite.blob(std.mem.asBytes(quote.id)),
+            sqlite.blob(&quote.id.bin),
             sqlite.blob(quote_json),
         });
     }
@@ -192,7 +205,7 @@ pub const Database = struct {
             defer self.pool.release(conn);
 
             if (try conn.row("SELECT quote FROM mint_quote WHERE id = ?1", .{
-                sqlite.blob(std.mem.asBytes(quote_id)),
+                sqlite.blob(&quote_id.bin),
             })) |row| {
                 defer row.deinit(); // must be called
                 const quote_json = row.blob(0);
@@ -225,7 +238,7 @@ pub const Database = struct {
 
         try conn.exec("UPDATE mint_quote SET quote = ?1 WHERE id = ?2", .{
             sqlite.blob(quote_json),
-            sqlite.blob(std.mem.asBytes(quote_id)),
+            sqlite.blob(&quote_id.bin),
         });
 
         return old_state;
@@ -236,7 +249,7 @@ pub const Database = struct {
         var conn = self.pool.acquire();
         defer self.pool.release(conn);
 
-        const rows = try conn.rows("SELECT quote FROM mint_quote", .{});
+        var rows = try conn.rows("SELECT quote FROM mint_quote", .{});
         defer rows.deinit();
 
         var arena = std.heap.ArenaAllocator.init(self.allocator);
@@ -245,7 +258,7 @@ pub const Database = struct {
         // creating result array list with caller allocator
         var res = std.ArrayList(MintQuote).init(allocator);
         errdefer {
-            for (res.items) |it| it.deinit();
+            for (res.items) |it| it.deinit(allocator);
             res.deinit();
         }
 
@@ -253,9 +266,9 @@ pub const Database = struct {
             defer row.deinit(); // must be called
             const quote_json = row.blob(0);
 
-            const quote = try std.json.parseFromSliceLeaky(MintQuote, self.allocator, quote_json, .{});
+            const quote = try std.json.parseFromSliceLeaky(MintQuote, arena.allocator(), quote_json, .{});
 
-            try res.append(try quote.value.clone(allocator));
+            try res.append(try quote.clone(allocator));
         }
 
         return res;
@@ -265,7 +278,7 @@ pub const Database = struct {
     pub fn getMintQuoteByRequestLookupId(
         self: *Self,
         allocator: std.mem.Allocator,
-        request: zul.UUID,
+        request: []const u8,
     ) !?MintQuote {
         var arena = std.heap.ArenaAllocator.init(allocator);
         defer arena.deinit();
@@ -274,7 +287,7 @@ pub const Database = struct {
         const quotes = try self.getMintQuotes(arena.allocator());
         for (quotes.items) |q| {
             // if we found, cloning with allocator, so caller responsible on free resources
-            if (q.request_lookup_id.eql(request)) return try q.clone(allocator);
+            if (std.mem.eql(u8, q.request_lookup_id, request)) return try q.clone(allocator);
         }
 
         return null;
@@ -287,7 +300,7 @@ pub const Database = struct {
     ) !?MintQuote {
         const quotes = try self.getMintQuotes(self.allocator);
         defer {
-            for (quotes.items) |q| q.deinit();
+            for (quotes.items) |q| q.deinit(self.allocator);
             quotes.deinit();
         }
 
@@ -306,7 +319,7 @@ pub const Database = struct {
         var conn = self.pool.acquire();
         defer self.pool.release(conn);
 
-        try conn.exec("DELETE FROM mint_quote WHERE id = ?1", .{sqlite.blob(std.mem.asBytes(quote_id))});
+        try conn.exec("DELETE FROM mint_quote WHERE id = ?1", .{sqlite.blob(&quote_id.bin)});
     }
 
     pub fn addMeltQuote(self: *Self, quote: MeltQuote) !void {
@@ -317,7 +330,7 @@ pub const Database = struct {
         defer self.allocator.free(quote_json);
 
         try conn.exec("UPSERT INTO melt_quote (id, quote) VALUES (?1, ?2);", .{
-            sqlite.blob(std.mem.asBytes(quote.id)),
+            sqlite.blob(&quote.id.bin),
             sqlite.blob(quote_json),
         });
     }
@@ -328,7 +341,7 @@ pub const Database = struct {
         defer self.pool.release(conn);
 
         if (try conn.row("SELECT quote FROM melt_quote WHERE id = ?1", .{
-            sqlite.blob(std.mem.asBytes(quote_id)),
+            sqlite.blob(&quote_id.bin),
         })) |row| {
             defer row.deinit(); // must be called
             const quote_json = row.blob(0);
@@ -360,7 +373,7 @@ pub const Database = struct {
 
         try conn.exec("UPDATE melt_quote SET quote = ?1 WHERE id = ?2", .{
             sqlite.blob(quote_json),
-            sqlite.blob(std.mem.asBytes(quote_id)),
+            sqlite.blob(&quote_id.bin),
         });
 
         return old_state;
@@ -371,7 +384,7 @@ pub const Database = struct {
         var conn = self.pool.acquire();
         defer self.pool.release(conn);
 
-        const rows = try conn.rows("SELECT quote FROM melt_quote", .{});
+        var rows = try conn.rows("SELECT quote FROM melt_quote", .{});
         defer rows.deinit();
 
         var arena = std.heap.ArenaAllocator.init(self.allocator);
@@ -380,7 +393,7 @@ pub const Database = struct {
         // creating result array list with caller allocator
         var res = std.ArrayList(MeltQuote).init(allocator);
         errdefer {
-            for (res.items) |it| it.deinit();
+            for (res.items) |it| it.deinit(allocator);
             res.deinit();
         }
 
@@ -388,9 +401,9 @@ pub const Database = struct {
             defer row.deinit(); // must be called
             const quote_json = row.blob(0);
 
-            const quote = try std.json.parseFromSliceLeaky(MeltQuote, self.allocator, quote_json, .{});
+            const quote = try std.json.parseFromSliceLeaky(MeltQuote, arena.allocator(), quote_json, .{});
 
-            try res.append(try quote.value.clone(allocator));
+            try res.append(try quote.clone(allocator));
         }
 
         return res;
@@ -400,7 +413,7 @@ pub const Database = struct {
     pub fn getMeltQuoteByRequestLookupId(
         self: *Self,
         allocator: std.mem.Allocator,
-        request: zul.UUID,
+        request: []const u8,
     ) !?MeltQuote {
         var arena = std.heap.ArenaAllocator.init(allocator);
         defer arena.deinit();
@@ -409,7 +422,7 @@ pub const Database = struct {
         const quotes = try self.getMeltQuotes(arena.allocator());
         for (quotes.items) |q| {
             // if we found, cloning with allocator, so caller responsible on free resources
-            if (q.request_lookup_id.eql(request)) return try q.clone(allocator);
+            if (std.mem.eql(u8, q.request_lookup_id, request)) return try q.clone(allocator);
         }
 
         return null;
@@ -437,11 +450,11 @@ pub const Database = struct {
     pub fn removeMeltQuoteState(
         self: *Self,
         quote_id: zul.UUID,
-    ) void {
+    ) !void {
         var conn = self.pool.acquire();
         defer self.pool.release(conn);
 
-        try conn.exec("DELETE FROM melt_quote WHERE id = ?1", .{sqlite.blob(std.mem.asBytes(quote_id))});
+        try conn.exec("DELETE FROM melt_quote WHERE id = ?1", .{sqlite.blob(&quote_id.bin)});
     }
 
     pub fn addProofs(self: *Self, proofs: []const nuts.Proof) !void {
@@ -470,7 +483,7 @@ pub const Database = struct {
             });
         }
 
-        conn.commit();
+        try conn.commit();
     }
 
     // caller must free resources
@@ -486,7 +499,7 @@ pub const Database = struct {
         defer arena.deinit();
 
         for (ys) |y| {
-            if (try conn.row("SELECT * FROM proof WHERE y=?1;", .{sqlite.blob(y.pk.data)})) |row| {
+            if (try conn.row("SELECT * FROM proof WHERE y=?1;", .{sqlite.blob(&y.serialize())})) |row| {
                 defer row.deinit();
 
                 const proof = try sqliteRowToProof(arena.allocator(), row);
@@ -502,21 +515,63 @@ pub const Database = struct {
         self: *Self,
         allocator: std.mem.Allocator,
         ys: []const secp256k1.PublicKey,
-        proof_state: nuts.nut07.State,
+        proofs_state: nuts.nut07.State,
     ) !std.ArrayList(?nuts.nut07.State) {
-        _ = self; // autofix
-        _ = allocator; // autofix
-        _ = ys; // autofix
-        _ = proof_state; // autofix
-        return undefined;
+        var conn = self.pool.acquire();
+        defer self.pool.release(conn);
+
+        try conn.transaction();
+        errdefer conn.rollback();
+
+        var states = try std.ArrayList(?nuts.nut07.State).initCapacity(allocator, ys.len);
+        errdefer states.deinit();
+
+        const proofs_state_str = proofs_state.toString();
+
+        for (ys) |y| {
+            const y_bytes = y.serialize();
+
+            const currenct_state: ?nuts.nut07.State = if (try conn.row("SELECT state FROM proof WHERE y = ?1", .{sqlite.blob(&y_bytes)})) |row| v: {
+                defer row.deinit();
+                break :v try nuts.nut07.State.fromString(row.text(0));
+            } else null;
+
+            states.appendAssumeCapacity(currenct_state);
+
+            if (currenct_state) |cs| {
+                if (cs != .spent) {
+                    try conn.exec("UPDATE proof SET state = ?1 WHERE y = ?2", .{ proofs_state_str, sqlite.blob(&y_bytes) });
+                }
+            }
+        }
+
+        try conn.commit();
+
+        return states;
     }
 
     // caller must free result
     pub fn getProofsStates(self: *Self, allocator: std.mem.Allocator, ys: []const secp256k1.PublicKey) !std.ArrayList(?nuts.nut07.State) {
-        _ = self; // autofix
-        _ = allocator; // autofix
-        _ = ys; // autofix
-        return undefined;
+        var conn = self.pool.acquire();
+        defer self.pool.release(conn);
+
+        var states = try std.ArrayList(?nuts.nut07.State).initCapacity(allocator, ys.len);
+        errdefer states.deinit();
+
+        for (ys) |y| {
+            const row = try conn.row("SELECT * FROM proof WHERE y=?1;", .{
+                sqlite.blob(&y.serialize()),
+            });
+
+            const state: ?nuts.nut07.State = if (row) |r| v: {
+                defer r.deinit();
+                break :v try nuts.nut07.State.fromString(r.text(0));
+            } else null;
+
+            states.appendAssumeCapacity(state);
+        }
+
+        return states;
     }
 
     // result through Arena, for more easy deallocation
@@ -528,21 +583,65 @@ pub const Database = struct {
         std.ArrayList(nuts.Proof),
         std.ArrayList(?nuts.nut07.State),
     })) {
-        _ = self; // autofix
-        _ = allocator; // autofix
-        _ = id; // autofix
-        return undefined;
+        var conn = self.pool.acquire();
+        defer self.pool.release(conn);
+
+        var rows = try conn.rows("SELECT amount, keyset_id, secret, c, witness, state FROM proof WHERE keyset_id=?1;", .{id.toString()});
+        defer rows.deinit();
+
+        var res = try Arened(std.meta.Tuple(&.{
+            std.ArrayList(nuts.Proof),
+            std.ArrayList(?nuts.nut07.State),
+        })).init(allocator);
+        errdefer res.deinit();
+
+        var proofs_for_id = std.ArrayList(nuts.Proof).init(res.arena.allocator());
+        var states = std.ArrayList(?nuts.nut07.State).init(res.arena.allocator());
+
+        while (rows.next()) |r| {
+            const proof, const state = try sqliteRowToProofWithState(res.arena.allocator(), r);
+            try proofs_for_id.append(proof);
+            try states.append(state);
+        }
+
+        res.value[0] = proofs_for_id;
+        res.value[1] = states;
+
+        return res;
     }
 
     pub fn addBlindSignatures(
         self: *Self,
         blinded_messages: []const secp256k1.PublicKey,
         blind_signatures: []const nuts.BlindSignature,
+        quote_id: ?[]const u8,
     ) !void {
-        _ = self; // autofix
-        _ = blinded_messages; // autofix
-        _ = blind_signatures; // autofix
-        return undefined;
+        var conn = self.pool.acquire();
+        defer self.pool.release(conn);
+
+        try conn.transaction();
+        errdefer conn.rollback();
+
+        // zip to arrays
+        const max_len = @min(blinded_messages.len, blind_signatures.len);
+
+        for (blinded_messages[0..max_len], blind_signatures[0..max_len]) |msg, signature| {
+            const sql =
+                \\ INSERT INTO blind_signature
+                \\ (y, amount, keyset_id, c, quote_id)
+                \\ VALUES (?1, ?2, ?3, ?4, ?5);
+            ;
+
+            try conn.exec(sql, .{
+                sqlite.blob(&msg.serialize()),
+                @as(i64, @intCast(signature.amount)),
+                signature.keyset_id.toString(),
+                sqlite.blob(&signature.c.serialize()),
+                quote_id,
+            });
+        }
+
+        try conn.commit();
     }
 
     pub fn getBlindSignatures(
@@ -550,10 +649,25 @@ pub const Database = struct {
         allocator: std.mem.Allocator,
         blinded_messages: []const secp256k1.PublicKey,
     ) !std.ArrayList(?nuts.BlindSignature) {
-        _ = self; // autofix
-        _ = allocator; // autofix
-        _ = blinded_messages; // autofix
-        return undefined;
+        var conn = self.pool.acquire();
+        defer self.pool.release(conn);
+
+        var res = try std.ArrayList(?nuts.BlindSignature).initCapacity(allocator, blinded_messages.len);
+        errdefer res.deinit();
+
+        for (blinded_messages) |msg| {
+            const sql =
+                "SELECT amount, keyset_id, c FROM blind_signature WHERE y=?1;";
+
+            if (try conn.row(sql, .{sqlite.blob(&msg.serialize())})) |row| {
+                defer row.deinit();
+                const blinded = try sqliteRowToBlindSignature(row);
+
+                res.appendAssumeCapacity(blinded);
+            } else res.appendAssumeCapacity(null);
+        }
+
+        return res;
     }
 
     /// caller response to free resources
@@ -562,12 +676,42 @@ pub const Database = struct {
         allocator: std.mem.Allocator,
         keyset_id: nuts.Id,
     ) !std.ArrayList(nuts.BlindSignature) {
-        _ = self; // autofix
-        _ = allocator; // autofix
-        _ = keyset_id; // autofix
-        return undefined;
+        var conn = self.pool.acquire();
+        defer self.pool.release(conn);
+
+        var res = std.ArrayList(nuts.BlindSignature).init(allocator);
+        errdefer res.deinit();
+
+        const sql =
+            "SELECT amount, keyset_id, c FROM blind_signature WHERE keyset_id=?1;";
+
+        var rows = try conn.rows(sql, .{keyset_id.toString()});
+        defer rows.deinit();
+
+        while (rows.next()) |row| {
+            defer row.deinit();
+            const blinded = try sqliteRowToBlindSignature(row);
+
+            try res.append(blinded);
+        }
+
+        return res;
     }
 };
+
+fn sqliteRowToBlindSignature(row: sqlite.Row) !nuts.BlindSignature {
+    const row_amount: i64 = row.int(0);
+    const keyset_id: []const u8 = row.text(1);
+
+    const row_c = row.blob(2);
+
+    return .{
+        .amount = @abs(row_amount),
+        .keyset_id = try nuts.Id.fromStr(keyset_id),
+        .c = try secp256k1.PublicKey.fromSlice(row_c),
+        .dleq = null,
+    };
+}
 
 // amount, keyset_id, secret, c, witness
 fn sqliteRowToProof(arena: std.mem.Allocator, row: sqlite.Row) !nuts.Proof {
@@ -578,11 +722,36 @@ fn sqliteRowToProof(arena: std.mem.Allocator, row: sqlite.Row) !nuts.Proof {
     const wintess = row.nullableText(4);
 
     return .{
-        .amount = amount,
+        .amount = @intCast(amount),
         .keyset_id = try nuts.Id.fromStr(keyset_id),
         .secret = .{ .inner = row_secret },
-        .c = secp256k1.PublicKey.fromSlice(row_c),
+        .c = try secp256k1.PublicKey.fromSlice(row_c),
         .witness = if (wintess) |w| try std.json.parseFromSliceLeaky(nuts.Witness, arena, w, .{}) else null,
         .dleq = null,
+    };
+}
+
+// amount, keyset_id, secret, c, witness, state
+fn sqliteRowToProofWithState(arena: std.mem.Allocator, row: sqlite.Row) !struct { nuts.Proof, ?nuts.State } {
+    const amount = row.int(0);
+    const keyset_id = row.text(1);
+    const row_secret = row.text(2);
+    const row_c = row.blob(3);
+    const wintess = row.nullableText(4);
+
+    const row_state = row.nullableText(5);
+
+    const state: ?nuts.nut07.State = if (row_state) |rs| try nuts.nut07.State.fromString(rs) else null;
+
+    return .{
+        .{
+            .amount = @intCast(amount),
+            .keyset_id = try nuts.Id.fromStr(keyset_id),
+            .secret = .{ .inner = row_secret },
+            .c = try secp256k1.PublicKey.fromSlice(row_c),
+            .witness = if (wintess) |w| try std.json.parseFromSliceLeaky(nuts.Witness, arena, w, .{}) else null,
+            .dleq = null,
+        },
+        state,
     };
 }
