@@ -3,6 +3,8 @@ const Self = @This();
 
 const std = @import("std");
 const core = @import("../lib.zig");
+const ref = @import("../../sync/ref.zig");
+const mpmc = @import("../../sync/mpmc.zig");
 
 const Channel = @import("../../channels/channels.zig").Channel;
 const Amount = core.amount.Amount;
@@ -21,7 +23,7 @@ ptr: *anyopaque,
 
 deinitFn: *const fn (ptr: *anyopaque) void,
 getSettingsFn: *const fn (ptr: *anyopaque) Settings,
-waitAnyInvoiceFn: *const fn (ptr: *anyopaque) anyerror!Channel(std.ArrayList(u8)).Rx,
+waitAnyInvoiceFn: *const fn (ptr: *anyopaque) ref.Arc(mpmc.UnboundedChannel(std.ArrayList(u8))),
 getPaymentQuoteFn: *const fn (ptr: *anyopaque, alloc: std.mem.Allocator, melt_quote_request: MeltQuoteBolt11Request) anyerror!PaymentQuoteResponse,
 payInvoiceFn: *const fn (ptr: *anyopaque, alloc: std.mem.Allocator, melt_quote: core.mint.MeltQuote, partial_msats: ?Amount, max_fee_msats: ?Amount) anyerror!PayInvoiceResponse,
 checkInvoiceStatusFn: *const fn (ptr: *anyopaque, request_lookup_id: []const u8) anyerror!MintQuoteState,
@@ -34,7 +36,7 @@ pub fn initFrom(comptime T: type, allocator: std.mem.Allocator, value: T) !Self 
             return self.getSettings();
         }
 
-        pub fn waitAnyInvoice(pointer: *anyopaque) anyerror!Channel(std.ArrayList(u8)).Rx {
+        pub fn waitAnyInvoice(pointer: *anyopaque) ref.Arc(mpmc.UnboundedChannel(std.ArrayList(u8))) {
             const self: *T = @ptrCast(@alignCast(pointer));
             return self.waitAnyInvoice();
         }
@@ -94,7 +96,7 @@ pub fn getSettings(self: Self) Settings {
     return self.getSettingsFn(self.ptr);
 }
 
-pub fn waitAnyInvoice(self: Self) !Channel(std.ArrayList(u8)).Rx {
+pub fn waitAnyInvoice(self: Self) ref.Arc(mpmc.UnboundedChannel(std.ArrayList(u8))) {
     return self.waitAnyInvoiceFn(self.ptr);
 }
 

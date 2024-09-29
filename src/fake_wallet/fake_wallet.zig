@@ -7,6 +7,8 @@ const lightning_invoice = @import("../lightning_invoices/invoice.zig");
 const helper = @import("../helper/helper.zig");
 const zul = @import("zul");
 const secp256k1 = @import("bitcoin-primitives").secp256k1;
+const ref = @import("../sync/ref.zig");
+const mpmc = @import("../sync/mpmc.zig");
 
 const Amount = core.amount.Amount;
 const PaymentQuoteResponse = core.lightning.PaymentQuoteResponse;
@@ -23,12 +25,19 @@ const MintLightning = core.lightning.MintLightning;
 // TODO:  wait any invoices, here we need create a new listener, that will receive
 // message like pub sub channel
 
-fn sendLabelFn(label: std.ArrayList(u8), ch: Channel(std.ArrayList(u8)).Tx, duration: u64) void {
+fn sendLabelFn(label: std.ArrayList(u8), ch: ref.Arc(mpmc.UnboundedChannel(std.ArrayList(u8))), duration: u64) void {
     errdefer label.deinit();
+    defer ch.releaseWithFn((struct {
+        fn deinit(_self: mpmc.UnboundedChannel(std.ArrayList(u8))) void {
+            _self.deinit();
+        }
+    }).deinit);
 
     std.time.sleep(duration * @as(u64, 1e9));
 
-    ch.send(label) catch |err| {
+    var sender = ch.value.sender() catch return std.log.err("channel closed, cannot take sender", .{});
+
+    sender.send(label) catch |err| {
         std.log.err("send label {s}, failed: {any}", .{ label.items, err });
         return;
     };
@@ -41,7 +50,7 @@ pub const FakeWallet = struct {
     const Self = @This();
 
     fee_reserve: core.mint.FeeReserve = .{},
-    chan: *Channel(std.ArrayList(u8)) = undefined, // we using signle channel for sending invoices
+    chan: ref.Arc(mpmc.UnboundedChannel(std.ArrayList(u8))), // we using signle channel for sending invoices
     mint_settings: MintMeltSettings = .{},
     melt_settings: MintMeltSettings = .{},
 
@@ -56,8 +65,12 @@ pub const FakeWallet = struct {
         mint_settings: MintMeltSettings,
         melt_settings: MintMeltSettings,
     ) !FakeWallet {
-        const ch = try Channel(std.ArrayList(u8)).init(allocator, 10);
-        errdefer ch.deinit();
+        const ch = try ref.arc(allocator, mpmc.UnboundedChannel(std.ArrayList(u8)).init(allocator));
+        errdefer ch.releaseWithFn((struct {
+            fn deinit(_self: mpmc.UnboundedChannel(std.ArrayList(u8))) void {
+                _self.deinit();
+            }
+        }).deinit);
 
         return .{
             .chan = ch,
@@ -74,7 +87,11 @@ pub const FakeWallet = struct {
     }
 
     pub fn deinit(self: *FakeWallet) void {
-        self.chan.deinit();
+        self.chan.releaseWithFn((struct {
+            fn deinit(_self: mpmc.UnboundedChannel(std.ArrayList(u8))) void {
+                _self.deinit();
+            }
+        }).deinit);
         self.thread_pool.deinit(self.allocator);
     }
 
@@ -89,9 +106,9 @@ pub const FakeWallet = struct {
 
     // Result is channel with invoices, caller must free result
     pub fn waitAnyInvoice(
-        self: *const Self,
-    ) !Channel(std.ArrayList(u8)).Rx {
-        return self.chan.getRx();
+        self: *Self,
+    ) ref.Arc(mpmc.UnboundedChannel(std.ArrayList(u8))) {
+        return self.chan.retain();
     }
 
     /// caller responsible to deallocate result
@@ -127,6 +144,7 @@ pub const FakeWallet = struct {
             .request_lookup_id = req_lookup_id,
             .amount = amount,
             .fee = fee,
+            .state = .unpaid,
         };
     }
 
@@ -144,6 +162,7 @@ pub const FakeWallet = struct {
         _ = _max_fee_msats; // autofix
 
         return .{
+            .unit = .msat,
             .payment_preimage = &.{},
             .payment_hash = &.{}, // empty slice - safe to free
             .status = .paid,
@@ -162,7 +181,7 @@ pub const FakeWallet = struct {
 
     /// creating invoice - caller own response and responsible to free
     pub fn createInvoice(
-        self: *const Self,
+        self: *Self,
         gpa: std.mem.Allocator,
         amount: Amount,
         unit: core.nuts.CurrencyUnit,
@@ -221,7 +240,7 @@ pub const FakeWallet = struct {
             const label_clone = try self.allocator.dupe(u8, label);
             errdefer self.allocator.free(label_clone);
 
-            try self.thread_pool.spawn(.{ std.ArrayList(u8).fromOwnedSlice(self.allocator, label_clone), self.chan.getTx(), duration });
+            try self.thread_pool.spawn(.{ std.ArrayList(u8).fromOwnedSlice(self.allocator, label_clone), self.chan.retain(), duration });
         }
 
         const expiry = signed_invoice.expiresAtSecs();

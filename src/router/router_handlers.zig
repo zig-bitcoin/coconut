@@ -114,6 +114,8 @@ pub fn getMintBolt11Quote(
         return error.InvalidPaymentRequest;
     };
 
+    std.log.debug("{s} quote_id", .{create_invoice_response.request_lookup_id});
+
     const quote = state.mint.newMintQuote(
         res.arena,
         state.mint_url,
@@ -121,7 +123,7 @@ pub fn getMintBolt11Quote(
         payload.unit,
         payload.amount,
         create_invoice_response.expiry orelse 0,
-        try zul.UUID.parse(create_invoice_response.request_lookup_id),
+        create_invoice_response.request_lookup_id,
     ) catch |err| {
         std.log.err("could not create new mint quote: {any}", .{err});
         return error.InternalError;
@@ -215,6 +217,8 @@ pub fn postMeltBolt11(
     req: *httpz.Request,
     res: *httpz.Response,
 ) !void {
+    errdefer std.log.debug("{any}", .{@errorReturnTrace()});
+
     const payload = try req.json(core.nuts.nut05.MeltBolt11Request) orelse return error.WrongRequest;
 
     const quote = state.mint.verifyMeltRequest(res.arena, payload) catch |err| {

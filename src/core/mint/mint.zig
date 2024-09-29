@@ -288,7 +288,7 @@ pub const Mint = struct {
         unit: nuts.CurrencyUnit,
         amount: core.amount.Amount,
         expiry: u64,
-        ln_lookup: zul.UUID,
+        ln_lookup: []const u8,
     ) !MintQuote {
         const nut04 = self.mint_info.nuts.nut04;
         if (nut04.disabled) return error.MintingDisabled;
@@ -579,7 +579,7 @@ pub const Mint = struct {
     /// Flag mint quote as paid
     pub fn payMintQuoteForRequestId(
         self: *Mint,
-        request_lookup_id: zul.UUID,
+        request_lookup_id: []const u8,
     ) !void {
         const mint_quote = (try self.localstore.value.getMintQuoteByRequestLookupId(self.allocator, request_lookup_id)) orelse return;
 
