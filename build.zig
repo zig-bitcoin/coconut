@@ -35,6 +35,32 @@ const external_dependencies = [_]build_helpers.Dependency{
     },
 };
 
+fn installSqliteDependency(sqlitec: *std.Build.Dependency, compile: *std.Build.Step.Compile) void {
+    compile.addCSourceFile(.{
+        .file = sqlitec.path("sqlite3.c"),
+        .flags = &[_][]const u8{
+            "-DSQLITE_DQS=0",
+            "-DSQLITE_DEFAULT_WAL_SYNCHRONOUS=1",
+            "-DSQLITE_USE_ALLOCA=1",
+            "-DSQLITE_THREADSAFE=1",
+            "-DSQLITE_TEMP_STORE=3",
+            "-DSQLITE_ENABLE_API_ARMOR=1",
+            "-DSQLITE_ENABLE_UNLOCK_NOTIFY",
+            "-DSQLITE_ENABLE_UPDATE_DELETE_LIMIT=1",
+            "-DSQLITE_DEFAULT_FILE_PERMISSIONS=0600",
+            "-DSQLITE_OMIT_DECLTYPE=1",
+            "-DSQLITE_OMIT_DEPRECATED=1",
+            "-DSQLITE_OMIT_LOAD_EXTENSION=1",
+            "-DSQLITE_OMIT_PROGRESS_CALLBACK=1",
+            "-DSQLITE_OMIT_SHARED_CACHE",
+            "-DSQLITE_OMIT_TRACE=1",
+            "-DSQLITE_OMIT_UTF16=1",
+            "-DHAVE_USLEEP=0",
+        },
+    });
+    compile.linkLibC();
+}
+
 pub fn build(b: *std.Build) !void {
     // Standard target options allows the person running `zig build` to choose
     // what target to build for. Here we do not override the defaults, which
@@ -46,6 +72,12 @@ pub fn build(b: *std.Build) !void {
     // between Debug, ReleaseSafe, ReleaseFast, and ReleaseSmall. Here we do not
     // set a preferred release mode, allowing the user to decide how to optimize.
     const optimize = b.standardOptimizeOption(.{});
+
+    // Sqlite3 c library source code
+    const sqlitec = b.dependency("sqlitec", .{
+        .target = target,
+        .optimize = optimize,
+    });
 
     // **************************************************************
     // *            HANDLE DEPENDENCY MODULES                       *
@@ -105,7 +137,7 @@ pub fn build(b: *std.Build) !void {
                 .target = target,
                 .optimize = optimize,
             });
-            exe.linkSystemLibrary("sqlite3");
+            installSqliteDependency(sqlitec, exe);
 
             // Add dependency modules to the library.
             for (deps) |mod| exe.root_module.addImport(
@@ -129,7 +161,7 @@ pub fn build(b: *std.Build) !void {
                 mod.name,
                 mod.module,
             );
-            exe.linkSystemLibrary("sqlite3");
+            installSqliteDependency(sqlitec, exe);
 
             check.dependOn(&exe.step);
         }
@@ -142,6 +174,7 @@ pub fn build(b: *std.Build) !void {
                 .optimize = optimize,
                 .single_threaded = false,
             });
+            installSqliteDependency(sqlitec, lib_unit_tests);
 
             // Add dependency modules to the library.
             for (deps) |mod| lib_unit_tests.root_module.addImport(
@@ -166,7 +199,7 @@ pub fn build(b: *std.Build) !void {
             .optimize = optimize,
         });
 
-        exe.linkSystemLibrary("sqlite3");
+        installSqliteDependency(sqlitec, exe);
 
         // Add dependency modules to the library.
         for (deps) |mod| exe.root_module.addImport(
@@ -198,6 +231,8 @@ pub fn build(b: *std.Build) !void {
             .optimize = optimize,
         });
 
+        installSqliteDependency(sqlitec, exe);
+
         // Add dependency modules to the library.
         for (deps) |mod| exe.root_module.addImport(
             mod.name,
@@ -223,6 +258,7 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize,
         .single_threaded = false,
     });
+    installSqliteDependency(sqlitec, lib_unit_tests);
 
     // Add dependency modules to the library.
     for (deps) |mod| lib_unit_tests.root_module.addImport(

@@ -18,9 +18,6 @@ pub const MintDatabase = struct {
 
     allocator: std.mem.Allocator,
     ptr: *anyopaque,
-    size: usize,
-    align_of: usize,
-
     deinitFn: *const fn (ptr: *anyopaque, allocator: std.mem.Allocator) void,
 
     setActiveKeysetFn: *const fn (ptr: *anyopaque, unit: nuts.CurrencyUnit, id: nuts.Id) anyerror!void,
@@ -243,14 +240,15 @@ pub const MintDatabase = struct {
                 const self: *T = @ptrCast(@alignCast(pointer));
                 return self.getBlindSignaturesForKeyset(gpa, keyset_id);
             }
-            pub fn deinit(pointer: *anyopaque, allocator: std.mem.Allocator) void {
+
+            pub fn deinit(pointer: *anyopaque, __allocator: std.mem.Allocator) void {
                 const self: *T = @ptrCast(@alignCast(pointer));
 
                 if (std.meta.hasFn(T, "deinit")) {
                     self.deinit();
                 }
 
-                allocator.destroy(self);
+                __allocator.destroy(self);
             }
         };
 
@@ -260,8 +258,6 @@ pub const MintDatabase = struct {
         return .{
             .ptr = ptr,
             .allocator = _allocator,
-            .size = @sizeOf(T),
-            .align_of = @alignOf(T),
 
             .getBlindSignaturesForKeysetFn = gen.getBlindSignaturesForKeyset,
 

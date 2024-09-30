@@ -59,6 +59,10 @@
             .url = "git+https://github.com/karlseguin/zqlite.zig#5b9e8715fb174c1c1f0bf15e4fbf5e77df5c6b34",
             .hash = "12209446c0581a04f460f978c489c6e5eec62ca1c4f95a7c5cf8f1d2abc597074db7",
         },
+        .sqlitec = .{
+            .url = "https://www.sqlite.org/2024/sqlite-amalgamation-3460100.zip",
+            .hash = "12206bc219bf56b927469c7d43f53c23fe2801c8158800f8613a783956998b7fc37f",
+        },
     },
     .paths = .{
         "build.zig",

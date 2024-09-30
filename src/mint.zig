@@ -80,7 +80,6 @@ pub fn main() !void {
     const config_path = clap_res.args.config orelse "config.toml";
 
     // TODO add work dir
-
     var parsed_settings = try config.Settings.initFromToml(gpa.allocator(), config_path);
     defer parsed_settings.deinit();
 
@@ -100,12 +99,13 @@ pub fn main() !void {
 
             break :v try MintDatabase.initFrom(MintMemoryDatabase, gpa.allocator(), db);
         },
-        // inline .sqlite => v: {
-        //     var db = try core.mint_memory.MintSqliteDatabase.initFrom(gpa.allocator(), "./cdk-mintd.sqlite");
-        //     errdefer db.deinit();
+        inline .sqlite => v: {
+            std.log.warn("hello", .{});
+            var db = try core.mint_memory.MintSqliteDatabase.initFrom(gpa.allocator(), "./cdk-mintd.sqlite");
+            errdefer db.deinit();
 
-        //     break :v try MintDatabase.initFrom(core.mint_memory.MintSqliteDatabase, gpa.allocator(), db);
-        // },
+            break :v try MintDatabase.initFrom(core.mint_memory.MintSqliteDatabase, gpa.allocator(), db);
+        },
         else => {
             // not implemented engine
             unreachable;
@@ -179,7 +179,7 @@ pub fn main() !void {
         var it = ln_backends.valueIterator();
 
         while (it.next()) |v| {
-            v.deinit();
+            v.deinit(gpa.allocator());
         }
         ln_backends.deinit();
     }
@@ -196,7 +196,7 @@ pub fn main() !void {
             const invoice_api_key = lnbits_settings.invoice_api_key;
 
             const webhook_endpoint = "/webhook/lnbits/sat/invoice";
-            var webhook_url = zul.StringBuilder.init(gpa.allocator());
+            var webhook_url = zul.StringBuilder.init(arena.allocator());
 
             try webhook_url
                 .write(mint_url);
@@ -209,7 +209,7 @@ pub fn main() !void {
 
                 break :val try ref.Arc(mpmc.UnboundedChannel(std.ArrayList(u8))).init(gpa.allocator(), ch);
             };
-            errdefer chan.releaseWithFn((struct {
+            defer chan.releaseWithFn((struct {
                 fn deinit(self: mpmc.UnboundedChannel(std.ArrayList(u8))) void {
                     self.deinit();
                 }
@@ -230,7 +230,7 @@ pub fn main() !void {
             errdefer lnbits.deinit();
 
             const ln_mint = try lnbits.toMintLightning(gpa.allocator());
-            errdefer ln_mint.deinit();
+            errdefer ln_mint.deinit(gpa.allocator());
 
             const unit = core.nuts.CurrencyUnit.sat;
 
@@ -243,7 +243,7 @@ pub fn main() !void {
             const webhook_router = try lnbits.client.createInvoiceWebhookRouter(
                 arena.allocator(),
                 webhook_endpoint,
-                chan.retain(),
+                chan,
             );
 
             try global_handler.router.append(webhook_router);
@@ -258,7 +258,7 @@ pub fn main() !void {
                 errdefer wallet.deinit();
 
                 const ln_mint = try wallet.toMintLightning(gpa.allocator());
-                errdefer ln_mint.deinit();
+                errdefer ln_mint.deinit(gpa.allocator());
 
                 try ln_backends.put(ln_key, ln_mint);
 
@@ -339,7 +339,14 @@ pub fn main() !void {
 
     const mnemonic = try bip39.Mnemonic.parseInNormalized(.english, parsed_settings.value.info.mnemonic);
 
-    var mint = try Mint.init(gpa.allocator(), parsed_settings.value.info.url, &try mnemonic.toSeedNormalized(&.{}), mint_info, localstore, supported_units);
+    var mint = try Mint.init(
+        gpa.allocator(),
+        parsed_settings.value.info.url,
+        &try mnemonic.toSeedNormalized(&.{}),
+        mint_info,
+        localstore,
+        supported_units,
+    );
     defer mint.deinit();
 
     // Check the status of any mint quotes that are pending
@@ -371,13 +378,10 @@ pub fn main() !void {
     // add lnn router here to server
     try handleInterrupt(&srv);
 
+    var wg = std.Thread.WaitGroup{};
     // Spawn task to wait for invoces to be paid and update mint quotes
     // handle invoices
-    const threads = v: {
-        var threads = try std.ArrayList(std.Thread).initCapacity(gpa.allocator(), ln_backends.count());
-        errdefer threads.deinit();
-        errdefer for (threads.items) |t| t.detach();
-
+    {
         const thread_fn = (struct {
             fn handleLnInvoice(m: *Mint, wait_ch: ref.Arc(mpmc.UnboundedChannel(std.ArrayList(u8)))) void {
                 defer wait_ch.releaseWithFn((struct {
@@ -406,21 +410,20 @@ pub fn main() !void {
 
         var it = ln_backends.iterator();
         while (it.next()) |ln_entry| {
-            threads.appendAssumeCapacity(try std.Thread.spawn(.{}, thread_fn, .{
-                &mint, ln_entry.value_ptr.waitAnyInvoice(),
-            }));
+            wg.spawnManager(thread_fn, .{
+                &mint,
+                ln_entry.value_ptr.waitAnyInvoice(),
+            });
         }
-        break :v threads;
-    };
-    defer threads.deinit();
-    defer for (threads.items) |t| t.detach();
+    }
 
     std.log.info("Listening server on {s}:{d}", .{
         parsed_settings.value.info.listen_host, parsed_settings.value.info.listen_port,
     });
     try srv.listen();
 
-    std.log.info("Stopped server", .{});
+    std.log.warn("Stopped server", .{});
+    wg.wait();
 }
 
 pub fn handleInterrupt(srv: *httpz.Server(*http_router.GlobalRouter)) !void {

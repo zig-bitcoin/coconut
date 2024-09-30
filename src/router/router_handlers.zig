@@ -15,6 +15,8 @@ pub fn getKeys(state: MintState, req: *httpz.Request, res: *httpz.Response) !voi
 }
 
 pub fn getKeysets(state: MintState, req: *httpz.Request, res: *httpz.Response) !void {
+    errdefer std.log.debug("{any}", .{@errorReturnTrace()});
+
     const keysets = try state.mint.getKeysets(req.arena);
 
     return try res.json(keysets, .{});

@@ -14,6 +14,10 @@ const MeltQuote = @import("../mint/mint.zig").MeltQuote;
 
 /// Executes ones, on first connection, this like migration
 fn initializeDB(conn: sqlite.Conn) !void {
+    errdefer std.log.debug("{any}", .{@errorReturnTrace()});
+
+    std.log.debug("initializing database", .{});
+    try conn.busyTimeout(1000);
     const sql =
         \\CREATE TABLE if not exists active_keysets ( currency_unit INTEGER PRIMARY KEY, id BLOB);
         \\CREATE TABLE if not exists keysets ( id BLOB PRIMARY KEY, keyset_info JSONB);
@@ -67,6 +71,7 @@ pub const Database = struct {
     ) !Database {
         const pool = try sqlite.Pool.init(allocator, .{
             .size = 5,
+            .flags = sqlite.OpenFlags.Create | sqlite.OpenFlags.EXResCode,
             .on_first_connection = &initializeDB,
             .path = path,
         });
@@ -81,7 +86,7 @@ pub const Database = struct {
         var conn = self.pool.acquire();
         defer self.pool.release(conn);
 
-        try conn.exec("UPSERT INTO active_keysets (currency_unit, id) VALUES (?1, ?2);", .{ @intFromEnum(unit), sqlite.blob(&id.toString()) });
+        try conn.exec("INSERT INTO active_keysets (currency_unit, id) VALUES (?1, ?2) ON CONFLICT DO UPDATE SET id = ?2;", .{ @intFromEnum(unit), sqlite.blob(&id.toString()) });
     }
 
     pub fn getActiveKeysetId(self: *Self, unit: nuts.CurrencyUnit) ?nuts.Id {
@@ -105,15 +110,13 @@ pub const Database = struct {
         var conn = self.pool.acquire();
         defer self.pool.release(conn);
 
-        var rows = try conn.rows("SELECT id, currency_nuit FROM active_keysets", .{});
+        var rows = try conn.rows("SELECT id, currency_unit FROM active_keysets", .{});
         defer rows.deinit();
 
         var result = std.AutoHashMap(nuts.CurrencyUnit, nuts.Id).init(allocator);
         errdefer result.deinit();
 
         while (rows.next()) |row| {
-            defer row.deinit();
-
             const id_blob = row.blob(0);
 
             const id = nuts.Id.fromStr(id_blob) catch unreachable;
@@ -133,7 +136,11 @@ pub const Database = struct {
         const keyset_encoded = try std.json.stringifyAlloc(self.allocator, keyset, .{});
         defer self.allocator.free(keyset_encoded);
 
-        try conn.exec("UPSERT INTO keysets (id, keyset_info) VALUES (?1, ?2);", .{
+        try conn.exec(
+            \\INSERT INTO keysets (id, keyset_info)
+            \\VALUES (?1, ?2)
+            \\  ON CONFLICT (id) DO UPDATE SET keyset_info=?2;
+        , .{
             sqlite.blob(&keyset.id.toBytes()),
             sqlite.blob(keyset_encoded),
         });
@@ -172,10 +179,7 @@ pub const Database = struct {
         defer rows.deinit();
 
         while (rows.next()) |row| {
-            defer row.deinit();
-
-            const keyset_info_encoded = row.blob(0);
-
+            const keyset_info_encoded = row.blob(1);
             // using arena allocator from result
             const decoded_ks_info = try std.json.parseFromSliceLeaky(MintKeySetInfo, res.arena.allocator(), keyset_info_encoded, .{});
 
@@ -192,7 +196,7 @@ pub const Database = struct {
         const quote_json = try std.json.stringifyAlloc(self.allocator, quote, .{});
         defer self.allocator.free(quote_json);
 
-        try conn.exec("UPSERT INTO mint_quote (id, quote) VALUES (?1, ?2);", .{
+        try conn.exec("INSERT INTO mint_quote (id, quote) VALUES (?1, ?2) ON CONFLICT DO UPDATE SET quote = ?2;", .{
             sqlite.blob(&quote.id.bin),
             sqlite.blob(quote_json),
         });
@@ -233,7 +237,7 @@ pub const Database = struct {
         const old_state = quote.state;
         quote.state = state;
 
-        const quote_json = try std.json.stringifyAlloc(self.allocator, MintQuote, .{});
+        const quote_json = try std.json.stringifyAlloc(self.allocator, quote, .{});
         defer self.allocator.free(quote_json);
 
         try conn.exec("UPDATE mint_quote SET quote = ?1 WHERE id = ?2", .{
@@ -263,7 +267,6 @@ pub const Database = struct {
         }
 
         while (rows.next()) |row| {
-            defer row.deinit(); // must be called
             const quote_json = row.blob(0);
 
             const quote = try std.json.parseFromSliceLeaky(MintQuote, arena.allocator(), quote_json, .{});
@@ -329,7 +332,7 @@ pub const Database = struct {
         const quote_json = try std.json.stringifyAlloc(self.allocator, quote, .{});
         defer self.allocator.free(quote_json);
 
-        try conn.exec("UPSERT INTO melt_quote (id, quote) VALUES (?1, ?2);", .{
+        try conn.exec("INSERT INTO melt_quote (id, quote) VALUES (?1, ?2) ON CONFLICT DO UPDATE SET quote = ?2;", .{
             sqlite.blob(&quote.id.bin),
             sqlite.blob(quote_json),
         });
@@ -368,7 +371,7 @@ pub const Database = struct {
         const old_state = quote.state;
         quote.state = state;
 
-        const quote_json = try std.json.stringifyAlloc(self.allocator, MeltQuote, .{});
+        const quote_json = try std.json.stringifyAlloc(self.allocator, quote, .{});
         defer self.allocator.free(quote_json);
 
         try conn.exec("UPDATE melt_quote SET quote = ?1 WHERE id = ?2", .{
@@ -398,7 +401,6 @@ pub const Database = struct {
         }
 
         while (rows.next()) |row| {
-            defer row.deinit(); // must be called
             const quote_json = row.blob(0);
 
             const quote = try std.json.parseFromSliceLeaky(MeltQuote, arena.allocator(), quote_json, .{});
@@ -465,8 +467,14 @@ pub const Database = struct {
         errdefer conn.rollback();
 
         for (proofs) |proof| {
-            const witness_json: ?[]const u8 = if (proof.witness) |w| try std.json.stringifyAlloc(self.allocator, w, .{}) else null;
+            // TODO fix witness encode
+            // const witness_json: ?[]const u8 = if (proof.witness) |w| try std.json.stringifyAlloc(self.allocator, w, .{}) else null;
+            const witness_json: ?[]const u8 = null;
             defer if (witness_json) |wj| self.allocator.free(wj);
+
+            std.log.debug("insert proof y {s}", .{
+                (try proof.y()).toString(),
+            });
 
             try conn.exec(
                 \\INSERT INTO proof
@@ -689,7 +697,6 @@ pub const Database = struct {
         defer rows.deinit();
 
         while (rows.next()) |row| {
-            defer row.deinit();
             const blinded = try sqliteRowToBlindSignature(row);
 
             try res.append(blinded);

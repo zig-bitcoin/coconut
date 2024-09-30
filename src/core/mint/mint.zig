@@ -241,7 +241,7 @@ pub const Mint = struct {
                 // not contains in array
                 const derivation_path = derivationPathFromUnit(unit, 0);
 
-                const keyset, const keyset_info = try createNewKeysetAlloc(
+                var keyset, const keyset_info = try createNewKeysetAlloc(
                     allocator,
                     secp_ctx,
                     xpriv,
@@ -252,6 +252,7 @@ pub const Mint = struct {
                     fee,
                 );
                 defer keyset_info.deinit(allocator);
+                errdefer keyset.deinit();
 
                 const id = keyset_info.id;
                 _ = try localstore.addKeysetInfo(keyset_info);
