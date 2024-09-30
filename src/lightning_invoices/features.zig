@@ -347,26 +347,31 @@ pub fn deinit(self: *Features) void {
 }
 
 pub fn fromBase32(gpa: std.mem.Allocator, data: []const u5) !Features {
-    const field_data = try bech32.arrayListFromBase32(gpa, data);
-    defer field_data.deinit();
+    _ = data; // autofix
+    // const field_data = try bech32.arrayListFromBase32(gpa, data);
+    // defer field_data.deinit();
 
-    const width: usize = 5;
+    // const width: usize = 5;
 
-    var flags = std.AutoHashMap(FeatureBit, void).init(gpa);
-    errdefer flags.deinit();
+    // var flags = std.AutoHashMap(FeatureBit, void).init(gpa);
+    // errdefer flags.deinit();
 
-    // Set feature bits from parsed data.
-    const bits_number = data.len * width;
-    for (0..bits_number) |i| {
-        const byte_index = i / width;
-        const bit_index = i % width;
+    // // Set feature bits from parsed data.
+    // const bits_number = data.len * width;
+    // for (0..bits_number) |i| {
+    //     const byte_index = i / width;
+    //     const bit_index = i % width;
 
-        if ((std.math.shl(u8, data[data.len - byte_index - 1], bit_index)) & 1 == 1) {
-            try flags.put(@truncate(i), {});
-        }
-    }
+    //     if ((std.math.shl(u8, data[data.len - byte_index - 1], bit_index)) & 1 == 1) {
+    //         try flags.put(@truncate(i), {});
+    //     }
+    // }
+
+    // return .{
+    //     .flags = flags,
+    // };
 
     return .{
-        .flags = flags,
+        .flags = std.AutoHashMap(FeatureBit, void).init(gpa),
     };
 }

@@ -355,7 +355,11 @@ pub const LNBitsClient = struct {
 
         std.log.debug("create invoice, response : {s}", .{res});
 
-        const parsed = std.json.parseFromSlice(std.json.Value, allocator, res, .{ .allocate = .alloc_always }) catch return error.WrongJson;
+        const parsed = std.json.parseFromSlice(std.json.Value, allocator, res, .{ .allocate = .alloc_always }) catch |err| {
+            errdefer std.log.debug("{any}", .{err});
+
+            return error.WrongJson;
+        };
 
         const payment_request = parsed.value.object.get("payment_request") orelse unreachable;
         const payment_hash = parsed.value.object.get("payment_hash") orelse unreachable;

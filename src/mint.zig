@@ -381,7 +381,7 @@ pub fn main() !void {
     var wg = std.Thread.WaitGroup{};
     // Spawn task to wait for invoces to be paid and update mint quotes
     // handle invoices
-    {
+    const channels: std.ArrayList(ref.Arc(mpmc.UnboundedChannel(std.ArrayList(u8)))) = v: {
         const thread_fn = (struct {
             fn handleLnInvoice(m: *Mint, wait_ch: ref.Arc(mpmc.UnboundedChannel(std.ArrayList(u8)))) void {
                 defer wait_ch.releaseWithFn((struct {
@@ -393,7 +393,8 @@ pub fn main() !void {
                 var receiver = wait_ch.value.receiver() catch return;
 
                 while (true) {
-                    var request_lookup_id = receiver.recv() orelse unreachable;
+                    // receive lookup id, otherwise channel is closed (application is terminated)
+                    var request_lookup_id = receiver.recv() orelse return;
                     defer request_lookup_id.releaseWithFn((struct {
                         fn deinit(_self: std.ArrayList(u8)) void {
                             _self.deinit();
@@ -409,21 +410,38 @@ pub fn main() !void {
         }).handleLnInvoice;
 
         var it = ln_backends.iterator();
+
+        var channels = try std.ArrayList(ref.Arc(mpmc.UnboundedChannel(std.ArrayList(u8)))).initCapacity(gpa.allocator(), ln_backends.count());
+        errdefer channels.deinit();
+
         while (it.next()) |ln_entry| {
+            // hack to stop channels
+            const ch =
+                ln_entry.value_ptr.waitAnyInvoice();
+            channels.appendAssumeCapacity(ch);
+
             wg.spawnManager(thread_fn, .{
                 &mint,
-                ln_entry.value_ptr.waitAnyInvoice(),
+                ch,
             });
         }
-    }
+
+        break :v channels;
+    };
+    defer channels.deinit();
 
     std.log.info("Listening server on {s}:{d}", .{
         parsed_settings.value.info.listen_host, parsed_settings.value.info.listen_port,
     });
     try srv.listen();
 
+    // hack to stop channels (and threads with handle invoice)
+    for (channels.items) |ch| {
+        ch.value.close();
+    }
+
     std.log.warn("Stopped server", .{});
-    wg.wait();
+    // defer wg.wait();
 }
 
 pub fn handleInterrupt(srv: *httpz.Server(*http_router.GlobalRouter)) !void {

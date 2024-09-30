@@ -94,6 +94,8 @@ pub fn getMintBolt11Quote(
     req: *httpz.Request,
     res: *httpz.Response,
 ) !void {
+    errdefer std.log.debug("{any}", .{@errorReturnTrace()});
+
     std.log.debug("get mint bolt11 quote req", .{});
 
     const payload = (try req.json(core.nuts.nut04.MintQuoteBolt11Request)) orelse return error.WrongRequest;

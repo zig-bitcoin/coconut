@@ -1299,6 +1299,15 @@ test "full serialize" {
     }
 }
 
+test "ln invoice" {
+    const str =
+        \\lnbc550n1pn04xe4sp53aqjsrd2wg58e7ve4erj8kklssaqg929uzzsdc6tzxg04jcvpa3qpp59sd92rxj89he4uzqg2d4xjcr3lvwa2pfhq3e2xxcwny6wkm024fqdpqf38xy6t5wvszs3z9f48jq5692fty253fxqrpcgcqpjrzjqdm9ng9v36em3598yqg5alyxr5afgquzmnapgqm5dd8c76ew3qgt5rpgrgqq3hcqqqqqqqlgqqqqqqqqvs9qxpqysgqjumakl745mg5djjxvtjz5n3upkz4gtsedd0vyf3a359crdcwvm7rlzkvpe87tnhphjjfp8mly79j0wz4hrrst68mfaz96lhj385q2dgpr42g8l
+    ;
+
+    var inv = try Bolt11Invoice.fromStr(std.testing.allocator, str);
+    defer inv.deinit();
+}
+
 test {
     _ = @import("builder.zig");
 }
