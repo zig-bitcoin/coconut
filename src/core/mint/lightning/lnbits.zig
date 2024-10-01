@@ -159,12 +159,14 @@ pub const LnBits = struct {
         const amnt = try core.lightning.toUnit(amount, unit, .sat);
 
         const expiry = unix_expiry - @abs(time_now);
+        _ = expiry; // autofix
 
         const create_invoice_response = try self.client.createInvoice(gpa, .{
             .amount = amnt,
             .unit = unit.toString(),
             .memo = description,
-            .expiry = expiry,
+            // .expiry = expiry,
+            .expiry = null,
             .webhook = self.webhook_url,
             .internal = null,
             .out = false,
