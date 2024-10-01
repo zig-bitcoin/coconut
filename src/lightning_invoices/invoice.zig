@@ -729,7 +729,7 @@ pub const RawTaggedField = union(enum) {
     }
 };
 
-fn calculateBase32Len(size: usize) usize {
+pub inline fn calculateBase32Len(size: usize) usize {
     const bits = size * 8;
 
     return if (bits % 5 == 0)
@@ -1020,10 +1020,9 @@ pub const TaggedField = union(enum) {
             .payment_metadata => |pm| {
                 try write_tagged_field(writer, constants.TAG_PAYMENT_METADATA, pm.items);
             },
-            // TODO implement other
-            // features: Features,
-
-            else => {},
+            .features => |f| {
+                try write_tagged_field(writer, constants.TAG_FEATURES, f);
+            },
         }
     }
 
@@ -1306,6 +1305,11 @@ test "ln invoice" {
 
     var inv = try Bolt11Invoice.fromStr(std.testing.allocator, str);
     defer inv.deinit();
+
+    const str_2 = try inv.signed_invoice.toStrAlloc(std.testing.allocator);
+    defer std.testing.allocator.free(str_2);
+
+    try std.testing.expectEqualStrings(str, str_2);
 }
 
 test {
