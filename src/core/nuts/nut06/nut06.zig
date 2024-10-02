@@ -124,6 +124,34 @@ pub const MintInfo = struct {
     mint_icon_url: ?[]const u8 = null,
     /// message of the day that the wallet must display to the user
     motd: ?[]const u8 = null,
+
+    pub fn deinit(self: MintInfo, allocator: std.mem.Allocator) void {
+        allocator.free(self.name.?);
+        // TODO check all fields that were allocated
+    }
+
+    pub fn clone(self: MintInfo, allocator: std.mem.Allocator) !MintInfo {
+        var cloned = self;
+
+        const name = try allocator.dupe(u8, self.name.?);
+        errdefer allocator.free(name);
+
+        const description = try allocator.dupe(u8, self.description.?);
+        errdefer allocator.free(description);
+
+        const description_long = try allocator.dupe(u8, self.description_long.?);
+        errdefer allocator.free(description_long);
+
+        const motd = try allocator.dupe(u8, self.motd.?);
+        errdefer allocator.free(motd);
+
+        cloned.name = name;
+        cloned.description = description;
+        cloned.description_long = description_long;
+        cloned.motd = motd;
+
+        return cloned;
+    }
 };
 
 /// Check state Settings
