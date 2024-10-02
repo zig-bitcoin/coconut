@@ -47,11 +47,16 @@ pub const WalletMemoryDatabase = struct {
         errdefer _melt_quotes.deinit();
 
         for (melt_quotes) |q| {
-            try _melt_quotes.put(q.id, q);
+            try _melt_quotes.put(q.id, try q.clone(allocator));
         }
 
         var _mint_keys = std.AutoHashMap(nuts.Id, nuts.nut01.Keys).init(allocator);
-        errdefer _mint_keys.deinit();
+        errdefer {
+            var it = _mint_keys.valueIterator();
+            while (it.next()) |k| {
+                k.deinit(allocator);
+            }
+        }
 
         for (mint_keys) |k| {
             try _mint_keys.put(try nuts.Id.fromKeys(allocator, k.inner), k);
@@ -92,7 +97,7 @@ pub const WalletMemoryDatabase = struct {
         self.lock.lock();
         defer self.lock.unlock();
 
-        try self.mints.put(mint_url, mint_info);
+        try self.mints.put(mint_url, mint_info.?);
     }
 
     pub fn removeMint(
@@ -102,10 +107,11 @@ pub const WalletMemoryDatabase = struct {
         self.lock.lock();
         defer self.lock.unlock();
 
-        _ = self.mints.fetchRemove(mint_url) orelse return;
+        const kv = self.mints.fetchRemove(mint_url) orelse return;
+        kv.value.?.deinit(self.allocator);
     }
 
-    pub fn getMint(self: *Self, mint_url: []u8) !?MintInfo {
+    pub fn getMint(self: *Self, mint_url: []u8, allocator: std.mem.Allocator) !?MintInfo {
         self.lock.lockShared();
         defer self.lock.unlockShared();
 
@@ -114,7 +120,8 @@ pub const WalletMemoryDatabase = struct {
         if (mint_info == null) {
             return null;
         }
-        return mint_info.?;
+
+        return if (self.mints.get(mint_url)) |m| try m.?.clone(allocator) else null;
     }
 
     pub fn getMints(self: *Self, allocator: std.mem.Allocator) !std.StringHashMap(?MintInfo) {
@@ -125,7 +132,8 @@ pub const WalletMemoryDatabase = struct {
 
         var it = self.mints.iterator();
         while (it.next()) |entry| {
-            try mints_copy.put(entry.key_ptr.*, entry.value_ptr.*);
+            const key_copy = try allocator.dupe(u8, entry.key_ptr.*);
+            try mints_copy.put(key_copy, entry.value_ptr.*);
         }
 
         return mints_copy;
