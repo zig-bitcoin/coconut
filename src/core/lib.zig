@@ -4,4 +4,5 @@ pub const amount = @import("amount.zig");
 pub const nuts = @import("nuts/lib.zig");
 pub const mint = @import("mint/mint.zig");
 pub const mint_memory = @import("database/database.zig");
+pub const wallet_memory = @import("database/wallet_memory.zig");
 pub const lightning = @import("lightning/lightning.zig");
