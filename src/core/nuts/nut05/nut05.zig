@@ -55,8 +55,8 @@ pub const QuoteState = enum {
         try out.write(self.toString());
     }
 
-    pub fn jsonParse(allocator: std.mem.Allocator, source: anytype, _: std.json.ParseOptions) !QuoteState {
-        const state = try std.json.innerParse([]const u8, allocator, source, .{});
+    pub fn jsonParse(allocator: std.mem.Allocator, source: anytype, options: std.json.ParseOptions) !QuoteState {
+        const state = try std.json.innerParse([]const u8, allocator, source, options);
 
         return QuoteState.fromString(state) catch {
             std.log.debug("wrong state value: {s}", .{state});

@@ -16,8 +16,9 @@ const Keys = @import("../core/nuts/nut01/nut01.zig").Keys;
 
 pub fn getKeys(state: MintState, req: *httpz.Request, res: *httpz.Response) !void {
     const pubkeys = try state.mint.pubkeys(req.arena);
+    const pubkeys_sorted = try pubkeys.sort(req.arena);
 
-    return try res.json(try pubkeys.sort(req.arena), .{});
+    return try res.json(pubkeys_sorted, .{});
 }
 
 pub fn getKeysets(state: MintState, req: *httpz.Request, res: *httpz.Response) !void {

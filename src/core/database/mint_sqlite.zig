@@ -351,7 +351,7 @@ pub const Database = struct {
             defer row.deinit(); // must be called
             const quote_json = row.blob(0);
 
-            const quote = try std.json.parseFromSlice(MeltQuote, self.allocator, quote_json, .{});
+            const quote = try std.json.parseFromSlice(MeltQuote, self.allocator, quote_json, .{ .allocate = .alloc_always });
             defer quote.deinit();
 
             return try quote.value.clone(allocator);
@@ -483,7 +483,7 @@ pub const Database = struct {
                 \\(y, amount, keyset_id, secret, c, witness, state)
                 \\VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7);
             , .{
-                sqlite.blob(&(try proof.y()).pk.data),
+                sqlite.blob(&(try proof.y()).serialize()),
                 @as(i64, @intCast(proof.amount)),
                 &proof.keyset_id.toString(),
                 proof.secret.toBytes(),

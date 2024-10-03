@@ -46,9 +46,9 @@ pub const KeysResponse = struct {
         };
     }
 
+    // we expect allocator is arena
     pub fn sort(self: KeysResponse, allocator: std.mem.Allocator) !KeysResponse {
         var sorted_keysets = std.ArrayList(KeySet).init(allocator);
-        defer sorted_keysets.deinit();
 
         for (self.keysets) |keyset| {
             const keys = keyset.keys;
@@ -81,11 +81,11 @@ pub const KeysResponse = struct {
             );
 
             var sorted_keys = std.StringHashMap(secp256k1.PublicKey).init(allocator);
-            defer sorted_keys.deinit();
 
             for (key_array.items) |key| {
                 const value = keys.inner.get(key).?;
-                try sorted_keys.put(key, value);
+
+                try sorted_keys.put(try allocator.dupe(u8, key), value);
             }
 
             const sorted_keyset = KeySet{

@@ -56,6 +56,10 @@ fn installSqliteDependency(sqlitec: *std.Build.Dependency, compile: *std.Build.S
             "-DSQLITE_OMIT_TRACE=1",
             "-DSQLITE_OMIT_UTF16=1",
             "-DHAVE_USLEEP=0",
+            "-DSQLITE_DEBUG=1",
+            "-DSQLITE_ENABLE_EXPLAIN_COMMENTS=1",
+            "-DSQLITE_ENABLE_TREETRACE=1",
+            "-DSQLITE_ENABLE_WHERETRACE=1",
         },
     });
     compile.linkLibC();
