@@ -1,17 +1,74 @@
 const std = @import("std");
-const httpz = @import("httpz");
-const core = @import("../core/lib.zig");
-const zul = @import("zul");
-const ln_invoice = @import("../lightning_invoices/invoice.zig");
 
+const bitcoin_primitives = @import("bitcoin-primitives");
+const httpz = @import("httpz");
+const secp256k1 = bitcoin_primitives.secp256k1;
+const zul = @import("zul");
+
+const core = @import("../core/lib.zig");
+const ln_invoice = @import("../lightning_invoices/invoice.zig");
 const MintLightning = core.lightning.MintLightning;
 const MintState = @import("router.zig").MintState;
 const LnKey = @import("router.zig").LnKey;
+const KeySet = @import("../core/nuts/nut02/nut02.zig").KeySet;
+const KeysResponse = @import("../core/nuts/nut01/nut01.zig").KeysResponse;
+const Keys = @import("../core/nuts/nut01/nut01.zig").Keys;
 
 pub fn getKeys(state: MintState, req: *httpz.Request, res: *httpz.Response) !void {
     const pubkeys = try state.mint.pubkeys(req.arena);
 
-    return try res.json(pubkeys, .{});
+    var sorted_keysets = std.ArrayList(KeySet).init(req.arena);
+    defer sorted_keysets.deinit();
+
+    for (pubkeys.keysets) |keyset| {
+        const keys = keyset.keys;
+
+        var key_array = std.ArrayList([]const u8).init(req.arena);
+        defer key_array.deinit();
+
+        var it = keys.inner.iterator();
+        while (it.next()) |kv| {
+            const key = kv.key_ptr.*;
+            try key_array.append(key);
+        }
+
+        const Context = struct {
+            items: [][]const u8,
+        };
+        var context = Context{ .items = key_array.items };
+
+        std.sort.insertion(
+            []const u8,
+            key_array.items,
+            &context,
+            struct {
+                fn lessThan(_: *Context, a: []const u8, b: []const u8) bool {
+                    const keyA = std.fmt.parseInt(u64, a, 10) catch 0;
+                    const keyB = std.fmt.parseInt(u64, b, 10) catch 0;
+                    return keyA < keyB;
+                }
+            }.lessThan,
+        );
+
+        var sorted_keys = std.StringHashMap(secp256k1.PublicKey).init(req.arena);
+        defer sorted_keys.deinit();
+
+        for (key_array.items) |key| {
+            const value = keys.inner.get(key).?;
+            try sorted_keys.put(key, value);
+        }
+
+        const sorted_keyset = KeySet{
+            .id = keyset.id,
+            .unit = keyset.unit,
+            .keys = Keys{ .inner = sorted_keys },
+        };
+
+        try sorted_keysets.append(sorted_keyset);
+    }
+
+    const sorted_pubkeys = KeysResponse{ .keysets = try sorted_keysets.toOwnedSlice() };
+    return try res.json(sorted_pubkeys, .{});
 }
 
 pub fn getKeysets(state: MintState, req: *httpz.Request, res: *httpz.Response) !void {
