@@ -214,6 +214,8 @@ pub const Database = struct {
                 defer row.deinit(); // must be called
                 const quote_json = row.blob(0);
 
+                std.log.debug("quote-json: {s}", .{quote_json});
+
                 const quote = try std.json.parseFromSlice(MintQuote, self.allocator, quote_json, .{});
                 defer quote.deinit();
 

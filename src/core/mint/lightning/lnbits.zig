@@ -18,9 +18,7 @@ const FeeReserve = core.mint.FeeReserve;
 const Channel = @import("../../../channels/channels.zig").Channel;
 const MintLightning = core.lightning.MintLightning;
 
-pub const HttpError = std.http.Client.RequestError || std.http.Client.Request.FinishError || std.http.Client.Request.WaitError || error{ ReadBodyError, WrongJson };
-
-pub const LightningError = HttpError || std.Uri.ParseError || std.mem.Allocator.Error || error{
+pub const LightningError = error{
     NotFound,
     Unauthorized,
     PaymentFailed,
@@ -159,14 +157,12 @@ pub const LnBits = struct {
         const amnt = try core.lightning.toUnit(amount, unit, .sat);
 
         const expiry = unix_expiry - @abs(time_now);
-        _ = expiry; // autofix
 
         const create_invoice_response = try self.client.createInvoice(gpa, .{
             .amount = amnt,
             .unit = unit.toString(),
             .memo = description,
-            // .expiry = expiry,
-            .expiry = null,
+            .expiry = expiry,
             .webhook = self.webhook_url,
             .internal = null,
             .out = false,
@@ -226,7 +222,7 @@ pub const LNBitsClient = struct {
     admin_key: []const u8,
     invoice_api_key: []const u8,
     lnbits_url: []const u8,
-    client: std.http.Client,
+    client: zul.http.Client,
 
     pub fn init(
         allocator: std.mem.Allocator,
@@ -234,9 +230,7 @@ pub const LNBitsClient = struct {
         invoice_api_key: []const u8,
         lnbits_url: []const u8,
     ) !LNBitsClient {
-        var client = std.http.Client{
-            .allocator = allocator,
-        };
+        var client = zul.http.Client.init(allocator);
         errdefer client.deinit();
 
         return .{
@@ -256,40 +250,24 @@ pub const LNBitsClient = struct {
         self: *@This(),
         allocator: std.mem.Allocator,
         endpoint: []const u8,
-    ) LightningError![]const u8 {
+    ) ![]const u8 {
         const uri = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ self.lnbits_url, endpoint });
         defer allocator.free(uri);
 
-        const header_buf = try allocator.alloc(u8, 1024 * 1024 * 4);
-        defer allocator.free(header_buf);
-
-        var req = try self.client.open(.GET, try std.Uri.parse(uri), .{
-            .server_header_buffer = header_buf,
-            .extra_headers = &.{
-                .{
-                    .name = "X-Api-Key",
-                    .value = self.admin_key,
-                },
-            },
-        });
+        var req = try self.client.allocRequest(allocator, uri);
         defer req.deinit();
 
-        try req.send();
-        try req.finish();
-        try req.wait();
+        try req.header("X-Api-Key", self.admin_key);
 
-        if (req.response.status != .ok) {
-            if (req.response.status == .not_found) return LightningError.NotFound;
+        var res = try req.getResponse(.{});
+
+        if (res.status != 200) {
+            if (res.status == 404) return LightningError.NotFound;
         }
 
-        var rdr = req.reader();
-        const body = rdr.readAllAlloc(allocator, 1024 * 1024 * 4) catch |err| {
-            std.log.debug("read body error: {any}", .{err});
-            return error.ReadBodyError;
-        };
-        errdefer allocator.free(body);
+        const res_body = try res.allocBody(allocator, .{});
 
-        return body;
+        return res_body.buf;
     }
 
     pub fn post(
@@ -297,51 +275,28 @@ pub const LNBitsClient = struct {
         allocator: std.mem.Allocator,
         endpoint: []const u8,
         req_body: []const u8,
-    ) LightningError![]const u8 {
+    ) !zul.StringBuilder {
         const uri = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ self.lnbits_url, endpoint });
         defer allocator.free(uri);
 
-        const header_buf = try allocator.alloc(u8, 1024 * 1024 * 4);
-        defer allocator.free(header_buf);
-
-        std.log.debug("uri: {s}", .{uri});
-
-        var req = try self.client.open(.POST, try std.Uri.parse(uri), .{
-            .server_header_buffer = header_buf,
-            .extra_headers = &.{
-                .{
-                    .name = "X-Api-Key",
-                    .value = self.admin_key,
-                },
-
-                .{
-                    .name = "accept",
-                    .value = "*/*",
-                },
-            },
-        });
+        var req = try self.client.allocRequest(allocator, uri);
         defer req.deinit();
 
-        req.transfer_encoding = .{ .content_length = req_body.len };
+        req.method = .POST;
 
-        try req.send();
-        try req.writeAll(req_body);
-        try req.finish();
-        try req.wait();
+        req.body(req_body);
 
-        if (req.response.status != .ok) {
-            if (req.response.status == .not_found) return LightningError.NotFound;
-            if (req.response.status == .unauthorized) return LightningError.Unauthorized;
+        try req.header("X-Api-Key", self.admin_key);
+        try req.header("accept", "*/*");
+
+        var res = try req.getResponse(.{});
+
+        if (res.status != 200) {
+            if (res.status == 404) return LightningError.NotFound;
+            if (res.status == 401) return LightningError.Unauthorized;
         }
 
-        var rdr = req.reader();
-        const body = rdr.readAllAlloc(allocator, 1024 * 1024 * 4) catch |err| {
-            std.log.debug("read post body error: {any}", .{err});
-            return error.ReadBodyError;
-        };
-        errdefer allocator.free(body);
-
-        return body;
+        return try res.allocBody(allocator, .{});
     }
 
     /// createInvoice - creating invoice
@@ -351,37 +306,20 @@ pub const LNBitsClient = struct {
             .emit_null_optional_fields = false,
         });
 
-        std.log.debug("request {s}", .{req_body});
-
         const res = try self.post(allocator, "api/v1/payments", req_body);
+        defer res.deinit();
 
-        std.log.debug("create invoice, response : {s}", .{res});
-
-        const parsed = std.json.parseFromSlice(std.json.Value, allocator, res, .{ .allocate = .alloc_always }) catch |err| {
-            errdefer std.log.debug("{any}", .{err});
+        const parsed = std.json.parseFromSlice(CreateInvoiceResponse, allocator, res.string(), .{
+            .allocate = .alloc_always,
+            .ignore_unknown_fields = true,
+        }) catch |err| {
+            errdefer std.log.debug("Parse create invoice error: {any}, body:\n{s}", .{ err, res.string() });
 
             return error.WrongJson;
         };
+        defer parsed.deinit();
 
-        const payment_request = parsed.value.object.get("payment_request") orelse unreachable;
-        const payment_hash = parsed.value.object.get("payment_hash") orelse unreachable;
-
-        const pr = switch (payment_request) {
-            .string => |v| try allocator.dupe(u8, v),
-            else => unreachable,
-        };
-        errdefer allocator.free(pr);
-
-        const ph = switch (payment_hash) {
-            .string => |v| try allocator.dupe(u8, v),
-            else => unreachable,
-        };
-        errdefer allocator.free(ph);
-
-        return .{
-            .payment_hash = ph,
-            .payment_request = pr,
-        };
+        return try parsed.value.clone(allocator);
     }
 
     /// payInvoice - paying invoice
@@ -390,8 +328,9 @@ pub const LNBitsClient = struct {
         const req_body = try std.json.stringifyAlloc(allocator, &.{ .out = true, .bolt11 = bolt11 }, .{});
 
         const res = try self.post(allocator, "api/v1/payments", req_body);
+        defer res.deinit();
 
-        const parsed = std.json.parseFromSlice(std.json.Value, allocator, res, .{ .allocate = .alloc_always }) catch return error.WrongJson;
+        const parsed = std.json.parseFromSlice(std.json.Value, allocator, res.string(), .{ .allocate = .alloc_always }) catch return error.WrongJson;
 
         const payment_hash = parsed.value.object.get("payment_hash") orelse unreachable;
 
@@ -566,6 +505,15 @@ pub const CreateInvoiceResponse = struct {
     payment_hash: []const u8,
     /// Payment request (bolt11)
     payment_request: []const u8,
+
+    pub fn clone(self: CreateInvoiceResponse, alloc: std.mem.Allocator) !CreateInvoiceResponse {
+        var s: CreateInvoiceResponse = undefined;
+        errdefer s.deinit(alloc);
+
+        s.payment_hash = try alloc.dupe(u8, self.payment_hash);
+        s.payment_request = try alloc.dupe(u8, self.payment_request);
+        return s;
+    }
 
     pub fn deinit(self: CreateInvoiceResponse, alloc: std.mem.Allocator) void {
         alloc.free(self.payment_hash);

@@ -24,8 +24,8 @@
     // internet connectivity.
     .dependencies = .{
         .zul = .{
-            .url = "https://github.com/karlseguin/zul/archive/08c989bf6871e87807a4668232913ee245425863.zip",
-            .hash = "12206f5d1e5bd4793fe952bbae891b7424a19026e0d296a1381074c7d21d5d76c1a1",
+            .url = "https://github.com/StringNick/zul/archive/9f9acdff296918e0f81e8af39b269dad988c48f9.zip",
+            .hash = "122016552e83ec129489fd32d89b4122f737fcdacb22dbee34dca2fbc62981bb487d",
         },
         .@"zig-cli" = .{
             .url = "https://github.com/StringNick/zig-cli/archive/c9b9d17b14c524785a32a5b7c930b9584a331372.zip",

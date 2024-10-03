@@ -44,6 +44,12 @@ pub const QuoteState = enum {
     pub fn jsonStringify(self: *const QuoteState, out: anytype) !void {
         try out.write(self.toStr());
     }
+
+    pub fn jsonParse(allocator: std.mem.Allocator, source: anytype, options: std.json.ParseOptions) !QuoteState {
+        const state = try std.json.innerParse([]const u8, allocator, source, options);
+
+        return QuoteState.fromStr(state) catch error.UnexpectedToken;
+    }
 };
 
 pub const MintMethodSettings = struct {

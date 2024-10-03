@@ -100,8 +100,8 @@ pub fn main() !void {
             break :v try MintDatabase.initFrom(MintMemoryDatabase, gpa.allocator(), db);
         },
         inline .sqlite => v: {
-            std.log.warn("hello", .{});
-            var db = try core.mint_memory.MintSqliteDatabase.initFrom(gpa.allocator(), "./cdk-mintd.sqlite");
+            // TODO custom path to database?
+            var db = try core.mint_memory.MintSqliteDatabase.initFrom(gpa.allocator(), "./cocomint_db.sqlite");
             errdefer db.deinit();
 
             break :v try MintDatabase.initFrom(core.mint_memory.MintSqliteDatabase, gpa.allocator(), db);

@@ -38,6 +38,8 @@ pub fn getCheckMintBolt11Quote(
     req: *httpz.Request,
     res: *httpz.Response,
 ) !void {
+    errdefer std.log.debug("{any}", .{@errorReturnTrace()});
+
     const quote_id_hex = req.param("quote_id") orelse return error.ExpectQuoteId;
 
     const quote_id = try zul.UUID.parse(quote_id_hex);
