@@ -14,6 +14,8 @@ const MeltQuote = @import("../mint/mint.zig").MeltQuote;
 
 /// Executes ones, on first connection, this like migration
 fn initializeDB(conn: sqlite.Conn) !void {
+    try conn.transaction();
+    errdefer conn.rollback();
     errdefer std.log.debug("{any}", .{@errorReturnTrace()});
 
     std.log.debug("initializing database", .{});
@@ -30,7 +32,7 @@ fn initializeDB(conn: sqlite.Conn) !void {
         \\     secret TEXT NOT NULL,
         \\     c BLOB NOT NULL,
         \\     witness TEXT,
-        \\     state TEXT CHECK ( state IN ('SPENT', 'PENDING' ) ) NOT NULL
+        \\     state TEXT CHECK ( state IN ('SPENT', 'UNSPENT', 'PENDING', 'RESERVED' ) ) NOT NULL
         \\ );
         \\ 
         \\ CREATE INDEX IF NOT EXISTS state_index ON proof(state);
@@ -50,6 +52,7 @@ fn initializeDB(conn: sqlite.Conn) !void {
     ;
 
     try conn.execNoArgs(sql);
+    try conn.commit();
 }
 
 /// TODO simple solution for rw locks, use on all structure, as temp solution

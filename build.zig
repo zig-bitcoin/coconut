@@ -53,13 +53,13 @@ fn installSqliteDependency(sqlitec: *std.Build.Dependency, compile: *std.Build.S
             "-DSQLITE_OMIT_LOAD_EXTENSION=1",
             "-DSQLITE_OMIT_PROGRESS_CALLBACK=1",
             "-DSQLITE_OMIT_SHARED_CACHE",
-            "-DSQLITE_OMIT_TRACE=1",
             "-DSQLITE_OMIT_UTF16=1",
             "-DHAVE_USLEEP=0",
             "-DSQLITE_DEBUG=1",
             "-DSQLITE_ENABLE_EXPLAIN_COMMENTS=1",
             "-DSQLITE_ENABLE_TREETRACE=1",
             "-DSQLITE_ENABLE_WHERETRACE=1",
+            "-DSQLITE_TRACE_STMT=1",
         },
     });
     compile.linkLibC();

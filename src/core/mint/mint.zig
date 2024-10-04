@@ -1096,6 +1096,7 @@ pub const Mint = struct {
     /// In the event that a melt request fails and the lighthing payment is not made
     /// The [`Proofs`] should be returned to an unspent state and the quote should be unpaid
     pub fn processUnpaidMelt(self: *Mint, melt_request: core.nuts.nut05.MeltBolt11Request) !void {
+        std.log.debug("processing unpaid melt", .{});
         var arena = std.heap.ArenaAllocator.init(self.allocator);
         defer arena.deinit();
 
