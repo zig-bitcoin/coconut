@@ -13,7 +13,7 @@ const MintKeys = @import("../nut01/nut01.zig").MintKeys;
 const MintKeyPair = @import("../nut01/nut01.zig").MintKeyPair;
 
 /// Keyset version
-pub const KeySetVersion = enum {
+pub const KeySetVersion = enum(u8) {
     /// Current Version 00
     version00,
 
@@ -43,6 +43,10 @@ const BYTELEN = 7;
 pub const Id = struct {
     version: KeySetVersion,
     id: [BYTELEN]u8,
+
+    pub fn toString(self: Id) [STRLEN + 2]u8 {
+        return ("00" ++ std.fmt.bytesToHex(self.id, .lower)).*;
+    }
 
     pub fn toBytes(self: Id) [BYTELEN + 1]u8 {
         return [_]u8{self.version.toByte()} ++ self.id;

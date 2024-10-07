@@ -45,6 +45,61 @@ pub const KeysResponse = struct {
             .keysets = try arraylist.toOwnedSlice(),
         };
     }
+
+    // we expect allocator is arena
+    pub fn sort(self: KeysResponse, allocator: std.mem.Allocator) !KeysResponse {
+        var sorted_keysets = std.ArrayList(KeySet).init(allocator);
+
+        for (self.keysets) |keyset| {
+            const keys = keyset.keys;
+
+            var key_array = std.ArrayList([]const u8).init(allocator);
+            defer key_array.deinit();
+
+            var it = keys.inner.iterator();
+            while (it.next()) |kv| {
+                const key = kv.key_ptr.*;
+                try key_array.append(key);
+            }
+
+            const Context = struct {
+                items: [][]const u8,
+            };
+            var context = Context{ .items = key_array.items };
+
+            std.sort.insertion(
+                []const u8,
+                key_array.items,
+                &context,
+                struct {
+                    fn lessThan(_: *Context, a: []const u8, b: []const u8) bool {
+                        const keyA = std.fmt.parseInt(u64, a, 10) catch 0;
+                        const keyB = std.fmt.parseInt(u64, b, 10) catch 0;
+                        return keyA < keyB;
+                    }
+                }.lessThan,
+            );
+
+            var sorted_keys = std.StringHashMap(secp256k1.PublicKey).init(allocator);
+
+            for (key_array.items) |key| {
+                const value = keys.inner.get(key).?;
+
+                try sorted_keys.put(try allocator.dupe(u8, key), value);
+            }
+
+            const sorted_keyset = KeySet{
+                .id = keyset.id,
+                .unit = keyset.unit,
+                .keys = Keys{ .inner = sorted_keys },
+            };
+
+            try sorted_keysets.append(sorted_keyset);
+        }
+
+        const sorted_pubkeys = KeysResponse{ .keysets = try sorted_keysets.toOwnedSlice() };
+        return sorted_pubkeys;
+    }
 };
 
 /// Mint Keys [NUT-01]

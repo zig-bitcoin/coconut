@@ -24,6 +24,9 @@ mnemonic = ""
 # Database engine (sqlite/redb) defaults to sqlite
 # engine = "sqlite"
 
+[sqlite]
+# path = "" default ./cocomint_sqlite.db
+
 [ln]
 # Required ln backend `cln`, `lnd`, `strike`, `fakewallet`, 'lnbits', 'phoenixd'
 ln_backend = "lnbits"

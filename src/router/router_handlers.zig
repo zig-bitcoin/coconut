@@ -1,20 +1,29 @@
 const std = @import("std");
-const httpz = @import("httpz");
-const core = @import("../core/lib.zig");
-const zul = @import("zul");
-const ln_invoice = @import("../lightning_invoices/invoice.zig");
 
+const bitcoin_primitives = @import("bitcoin-primitives");
+const httpz = @import("httpz");
+const secp256k1 = bitcoin_primitives.secp256k1;
+const zul = @import("zul");
+
+const core = @import("../core/lib.zig");
+const ln_invoice = @import("../lightning_invoices/invoice.zig");
 const MintLightning = core.lightning.MintLightning;
 const MintState = @import("router.zig").MintState;
 const LnKey = @import("router.zig").LnKey;
+const KeySet = @import("../core/nuts/nut02/nut02.zig").KeySet;
+const KeysResponse = @import("../core/nuts/nut01/nut01.zig").KeysResponse;
+const Keys = @import("../core/nuts/nut01/nut01.zig").Keys;
 
 pub fn getKeys(state: MintState, req: *httpz.Request, res: *httpz.Response) !void {
     const pubkeys = try state.mint.pubkeys(req.arena);
+    const pubkeys_sorted = try pubkeys.sort(req.arena);
 
-    return try res.json(pubkeys, .{});
+    return try res.json(pubkeys_sorted, .{});
 }
 
 pub fn getKeysets(state: MintState, req: *httpz.Request, res: *httpz.Response) !void {
+    errdefer std.log.debug("{any}", .{@errorReturnTrace()});
+
     const keysets = try state.mint.getKeysets(req.arena);
 
     return try res.json(keysets, .{});
@@ -36,6 +45,8 @@ pub fn getCheckMintBolt11Quote(
     req: *httpz.Request,
     res: *httpz.Response,
 ) !void {
+    errdefer std.log.debug("{any}", .{@errorReturnTrace()});
+
     const quote_id_hex = req.param("quote_id") orelse return error.ExpectQuoteId;
 
     const quote_id = try zul.UUID.parse(quote_id_hex);
@@ -92,6 +103,8 @@ pub fn getMintBolt11Quote(
     req: *httpz.Request,
     res: *httpz.Response,
 ) !void {
+    errdefer std.log.debug("{any}", .{@errorReturnTrace()});
+
     std.log.debug("get mint bolt11 quote req", .{});
 
     const payload = (try req.json(core.nuts.nut04.MintQuoteBolt11Request)) orelse return error.WrongRequest;

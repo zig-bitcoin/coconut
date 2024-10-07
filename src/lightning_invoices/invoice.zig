@@ -729,7 +729,7 @@ pub const RawTaggedField = union(enum) {
     }
 };
 
-fn calculateBase32Len(size: usize) usize {
+pub inline fn calculateBase32Len(size: usize) usize {
     const bits = size * 8;
 
     return if (bits % 5 == 0)
@@ -1020,10 +1020,9 @@ pub const TaggedField = union(enum) {
             .payment_metadata => |pm| {
                 try write_tagged_field(writer, constants.TAG_PAYMENT_METADATA, pm.items);
             },
-            // TODO implement other
-            // features: Features,
-
-            else => {},
+            .features => |f| {
+                try write_tagged_field(writer, constants.TAG_FEATURES, f);
+            },
         }
     }
 
@@ -1297,6 +1296,20 @@ test "full serialize" {
 
         try std.testing.expectEqualSlices(u8, vv, double_encoded);
     }
+}
+
+test "ln invoice" {
+    const str =
+        \\lnbc550n1pn04xe4sp53aqjsrd2wg58e7ve4erj8kklssaqg929uzzsdc6tzxg04jcvpa3qpp59sd92rxj89he4uzqg2d4xjcr3lvwa2pfhq3e2xxcwny6wkm024fqdpqf38xy6t5wvszs3z9f48jq5692fty253fxqrpcgcqpjrzjqdm9ng9v36em3598yqg5alyxr5afgquzmnapgqm5dd8c76ew3qgt5rpgrgqq3hcqqqqqqqlgqqqqqqqqvs9qxpqysgqjumakl745mg5djjxvtjz5n3upkz4gtsedd0vyf3a359crdcwvm7rlzkvpe87tnhphjjfp8mly79j0wz4hrrst68mfaz96lhj385q2dgpr42g8l
+    ;
+
+    var inv = try Bolt11Invoice.fromStr(std.testing.allocator, str);
+    defer inv.deinit();
+
+    const str_2 = try inv.signed_invoice.toStrAlloc(std.testing.allocator);
+    defer std.testing.allocator.free(str_2);
+
+    try std.testing.expectEqualStrings(str, str_2);
 }
 
 test {

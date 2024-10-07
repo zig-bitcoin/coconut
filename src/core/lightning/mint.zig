@@ -21,7 +21,7 @@ const MintQuoteState = core.nuts.nut04.QuoteState;
 allocator: std.mem.Allocator,
 ptr: *anyopaque,
 
-deinitFn: *const fn (ptr: *anyopaque) void,
+deinitFn: *const fn (ptr: *anyopaque, allocator: std.mem.Allocator) void,
 getSettingsFn: *const fn (ptr: *anyopaque) Settings,
 waitAnyInvoiceFn: *const fn (ptr: *anyopaque) ref.Arc(mpmc.UnboundedChannel(std.ArrayList(u8))),
 getPaymentQuoteFn: *const fn (ptr: *anyopaque, alloc: std.mem.Allocator, melt_quote_request: MeltQuoteBolt11Request) anyerror!PaymentQuoteResponse,
@@ -61,11 +61,14 @@ pub fn initFrom(comptime T: type, allocator: std.mem.Allocator, value: T) !Self 
             return self.createInvoice(arena, amount, unit, description, unix_expiry);
         }
 
-        pub fn deinit(pointer: *anyopaque) void {
+        pub fn deinit(pointer: *anyopaque, _allocator: std.mem.Allocator) void {
+            const self: *T = @ptrCast(@alignCast(pointer));
+
             if (std.meta.hasFn(T, "deinit")) {
-                const self: *T = @ptrCast(@alignCast(pointer));
                 self.deinit();
             }
+
+            _allocator.destroy(self);
         }
     };
 
@@ -76,6 +79,7 @@ pub fn initFrom(comptime T: type, allocator: std.mem.Allocator, value: T) !Self 
         // ._type = T,
         .allocator = allocator,
         .ptr = ptr,
+
         .getSettingsFn = gen.getSettings,
         .waitAnyInvoiceFn = gen.waitAnyInvoice,
         .getPaymentQuoteFn = gen.getPaymentQuote,
@@ -86,10 +90,9 @@ pub fn initFrom(comptime T: type, allocator: std.mem.Allocator, value: T) !Self 
     };
 }
 
-pub fn deinit(self: Self) void {
-    self.deinitFn(self.ptr);
+pub fn deinit(self: Self, allocator: std.mem.Allocator) void {
+    self.deinitFn(self.ptr, allocator);
     // clearing pointer
-    // self.allocator.destroy(@as(self._type, @ptrCast(self.ptr)));
 }
 
 pub fn getSettings(self: Self) Settings {

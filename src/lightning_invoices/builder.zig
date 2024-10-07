@@ -180,15 +180,18 @@ pub fn setMinFinalCltvExpiryDelta(self: *InvoiceBuilder, delta: u64) !void {
 
 /// Sets the payment secret and relevant features.
 pub fn setPaymentSecret(self: *InvoiceBuilder, gpa: std.mem.Allocator, payment_secret: PaymentSecret) !void {
+    _ = gpa; // autofix
     self.secret_flag = true;
 
     var found_features = false;
     for (self.tagged_fields.items) |*f| {
         switch (f.*) {
             .features => |*field| {
+                _ = field; // autofix
                 found_features = true;
-                try field.set(Features.tlv_onion_payload_required);
-                try field.set(Features.payment_addr_required);
+                // TODO set after
+                // try field.set(Features.tlv_onion_payload_required);
+                // try field.set(Features.payment_addr_required);
             },
             else => continue,
         }
@@ -197,14 +200,16 @@ pub fn setPaymentSecret(self: *InvoiceBuilder, gpa: std.mem.Allocator, payment_s
     self.tagged_fields.appendAssumeCapacity(.{ .payment_secret = payment_secret });
 
     if (!found_features) {
-        var features = Features{
-            .flags = std.AutoHashMap(Features.FeatureBit, void).init(gpa),
-        };
+        // TODO implement features
+        // var features = Features{
+        //     .flags = std.AutoHashMap(Features.FeatureBit, void).init(gpa),
+        //     ._flags = undefined,
+        // };
 
-        try features.set(Features.tlv_onion_payload_required);
-        try features.set(Features.payment_addr_required);
+        // try features.set(Features.tlv_onion_payload_required);
+        // try features.set(Features.payment_addr_required);
 
-        self.tagged_fields.appendAssumeCapacity(.{ .features = features });
+        // self.tagged_fields.appendAssumeCapacity(.{ .features = features });
     }
 }
 

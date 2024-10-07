@@ -24,8 +24,8 @@
     // internet connectivity.
     .dependencies = .{
         .zul = .{
-            .url = "https://github.com/karlseguin/zul/archive/08c989bf6871e87807a4668232913ee245425863.zip",
-            .hash = "12206f5d1e5bd4793fe952bbae891b7424a19026e0d296a1381074c7d21d5d76c1a1",
+            .url = "https://github.com/StringNick/zul/archive/9f9acdff296918e0f81e8af39b269dad988c48f9.zip",
+            .hash = "122016552e83ec129489fd32d89b4122f737fcdacb22dbee34dca2fbc62981bb487d",
         },
         .@"zig-cli" = .{
             .url = "https://github.com/StringNick/zig-cli/archive/c9b9d17b14c524785a32a5b7c930b9584a331372.zip",
@@ -50,6 +50,18 @@
         .clap = .{
             .url = "git+https://github.com/Hejsil/zig-clap#2d9db156ae928860a9acf2f1260750d3b44a4c98",
             .hash = "122005e589ab3b6bff8e589b45f5b12cd27ce79f266bdac17e9f33ebfe2fbaff7fe3",
+        },
+        .rocksdb = .{
+            .url = "git+https://github.com/zig-bitcoin/rocksdb-zig#27f69e3756999ac711f4f9278a698fd5eecce169",
+            .hash = "122086b7931284e391223ce165a9bee94b624a7fb34531ecc95cafb22f049887d175",
+        },
+        .zqlite = .{
+            .url = "git+https://github.com/karlseguin/zqlite.zig#5b9e8715fb174c1c1f0bf15e4fbf5e77df5c6b34",
+            .hash = "12209446c0581a04f460f978c489c6e5eec62ca1c4f95a7c5cf8f1d2abc597074db7",
+        },
+        .sqlitec = .{
+            .url = "https://www.sqlite.org/2024/sqlite-amalgamation-3460100.zip",
+            .hash = "12206bc219bf56b927469c7d43f53c23fe2801c8158800f8613a783956998b7fc37f",
         },
     },
     .paths = .{

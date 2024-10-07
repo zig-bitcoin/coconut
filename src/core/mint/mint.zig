@@ -241,7 +241,7 @@ pub const Mint = struct {
                 // not contains in array
                 const derivation_path = derivationPathFromUnit(unit, 0);
 
-                const keyset, const keyset_info = try createNewKeysetAlloc(
+                var keyset, const keyset_info = try createNewKeysetAlloc(
                     allocator,
                     secp_ctx,
                     xpriv,
@@ -252,6 +252,7 @@ pub const Mint = struct {
                     fee,
                 );
                 defer keyset_info.deinit(allocator);
+                errdefer keyset.deinit();
 
                 const id = keyset_info.id;
                 _ = try localstore.addKeysetInfo(keyset_info);
@@ -690,7 +691,7 @@ pub const Mint = struct {
 
         try self.localstore
             .value
-            .addBlindSignatures(blinded_messages.items, blind_signatures.items);
+            .addBlindSignatures(blinded_messages.items, blind_signatures.items, &mint_request.quote);
 
         _ = try self.localstore.value.updateMintQuoteState(quote_id, .issued);
 
@@ -935,6 +936,7 @@ pub const Mint = struct {
             .addBlindSignatures(
             blinded_messages.items,
             promises.items,
+            null,
         );
 
         return .{
@@ -1094,6 +1096,7 @@ pub const Mint = struct {
     /// In the event that a melt request fails and the lighthing payment is not made
     /// The [`Proofs`] should be returned to an unspent state and the quote should be unpaid
     pub fn processUnpaidMelt(self: *Mint, melt_request: core.nuts.nut05.MeltBolt11Request) !void {
+        std.log.debug("processing unpaid melt", .{});
         var arena = std.heap.ArenaAllocator.init(self.allocator);
         defer arena.deinit();
 
@@ -1204,6 +1207,7 @@ pub const Mint = struct {
                     .addBlindSignatures(
                     blinded_messages.items,
                     change_sigs.items,
+                    melt_request.quote,
                 );
 
                 change = change_sigs;

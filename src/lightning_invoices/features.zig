@@ -69,7 +69,10 @@
 //! [BOLT #9]: https://github.com/lightning/bolts/blob/master/09-features.md
 const std = @import("std");
 const bech32 = @import("bitcoin-primitives").bech32;
+const ser = @import("ser.zig");
+const invoice = @import("invoice.zig");
 
+const Writer = ser.Writer;
 pub const FeatureBit = u16;
 
 const Features = @This();
@@ -336,37 +339,106 @@ pub inline fn isFeatureRequired(b: FeatureBit) bool {
 ///
 /// This is not exported to bindings users as we map the concrete feature types below directly instead
 /// Note that, for convenience, flags is LITTLE endian (despite being big-endian on the wire)
-flags: std.AutoHashMap(FeatureBit, void),
+flags: std.ArrayList(u8),
 
-pub fn set(self: *Features, b: FeatureBit) !void {
-    try self.flags.put(b, {});
-}
+// pub fn set(self: *Features, b: FeatureBit) !void {
+//     try self.flags.put(b, {});
+// }
 
 pub fn deinit(self: *Features) void {
     self.flags.deinit();
 }
 
-pub fn fromBase32(gpa: std.mem.Allocator, data: []const u5) !Features {
-    const field_data = try bech32.arrayListFromBase32(gpa, data);
-    defer field_data.deinit();
+pub fn base32Len(self: *const Features) usize {
+    // its hack (use allocator from features)
+    var writer = std.ArrayList(u5).init(self.flags.allocator);
+    defer writer.deinit();
 
-    const width: usize = 5;
+    var w = Writer.init(&writer);
 
-    var flags = std.AutoHashMap(FeatureBit, void).init(gpa);
-    errdefer flags.deinit();
+    // TODO: rewrite to fix em
+    self.writeBase32(&w) catch unreachable;
 
-    // Set feature bits from parsed data.
-    const bits_number = data.len * width;
-    for (0..bits_number) |i| {
-        const byte_index = i / width;
-        const bit_index = i % width;
+    return writer.items.len;
+}
 
-        if ((std.math.shl(u8, data[data.len - byte_index - 1], bit_index)) & 1 == 1) {
-            try flags.put(@truncate(i), {});
+pub fn writeBase32(self: *const Features, writer: *const Writer) !void {
+    // Explanation for the "4": the normal way to round up when dividing is to add the divisor
+    // minus one before dividing
+    const length_u5s: usize = (self.flags.items.len * 8 + 4) / 5;
+
+    var res_u5s = try std.ArrayList(u5).initCapacity(self.flags.allocator, length_u5s);
+    defer res_u5s.deinit();
+
+    res_u5s.appendNTimesAssumeCapacity(0, length_u5s);
+
+    for (self.flags.items, 0..) |byte, byte_idx| {
+        const bit_pos_from_left_0_indexed = byte_idx * 8;
+        const new_u5_idx = length_u5s - @as(usize, @intCast(bit_pos_from_left_0_indexed / 5)) - 1;
+        const new_bit_pos = bit_pos_from_left_0_indexed % 5;
+        const shifted_chunk_u16 = std.math.shl(u16, byte, new_bit_pos);
+        const curr_u5_as_u8: u8 = @intCast(res_u5s.items[new_u5_idx]);
+        res_u5s.items[new_u5_idx] =
+            @intCast(curr_u5_as_u8 | @as(u8, @intCast((shifted_chunk_u16 & 0x001f))));
+
+        if (new_u5_idx > 0) {
+            const _curr_u5_as_u8: u8 = res_u5s.items[new_u5_idx - 1];
+            res_u5s.items[new_u5_idx - 1] = @intCast(_curr_u5_as_u8 | @as(u8, @intCast((shifted_chunk_u16 >> 5) & 0x001f)));
+        }
+
+        if (new_u5_idx > 1) {
+            const _curr_u5_as_u8: u8 = res_u5s.items[new_u5_idx - 2];
+            res_u5s.items[new_u5_idx - 2] =
+                @intCast(_curr_u5_as_u8 | @as(u8, @intCast(((shifted_chunk_u16 >> 10) & 0x001f))));
         }
     }
 
+    // Trim the highest feature bits.
+    while (res_u5s.items.len != 0 and res_u5s.items[0] == 0) {
+        _ = res_u5s.orderedRemove(0);
+    }
+
+    try writer.write(res_u5s.items);
+}
+
+pub fn fromBase32(gpa: std.mem.Allocator, data: []const u5) !Features {
+    // Explanation for the "7": the normal way to round up when dividing is to add the divisor
+    // minus one before dividing
+    const length_bytes = (data.len * 5 + 7) / 8;
+
+    var res_bytes = try std.ArrayList(u8).initCapacity(gpa, length_bytes);
+    errdefer res_bytes.deinit();
+
+    res_bytes.appendNTimesAssumeCapacity(0, length_bytes);
+
+    for (data, 0..) |chunk, u5_idx| {
+        const bit_pos_from_right_0_indexed = (data.len - u5_idx - 1) * 5;
+        const new_byte_idx = (bit_pos_from_right_0_indexed / 8);
+        const new_bit_pos = bit_pos_from_right_0_indexed % 8;
+        const chunk_u16 = @as(u16, chunk);
+
+        res_bytes.items[new_byte_idx] |= @intCast(std.math.shl(u16, chunk_u16, new_bit_pos) & 0xff);
+
+        if (new_byte_idx != length_bytes - 1) {
+            res_bytes.items[new_byte_idx + 1] |= @intCast((std.math.shr(u16, chunk_u16, 8 - new_bit_pos)) & 0xff);
+        }
+    }
+
+    // Trim the highest feature bits.
+    while (res_bytes.items.len != 0 and res_bytes.items[res_bytes.items.len - 1] == 0) {
+        _ = res_bytes.pop();
+    }
+
     return .{
-        .flags = flags,
+        .flags = res_bytes,
     };
+}
+
+test "encode/decode" {
+
+    // { 0, 65, 2, 2 }, data { 1, 0, 4, 16, 8, 0 }
+    var f = try Features.fromBase32(std.testing.allocator, &.{ 1, 0, 4, 16, 8, 0 });
+    defer f.deinit();
+
+    try std.testing.expectEqualSlices(u8, f.flags.items, &.{ 0, 65, 2, 2 });
 }
