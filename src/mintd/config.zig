@@ -14,6 +14,7 @@ pub const Settings = struct {
     lnbits: ?Lnbits,
     fake_wallet: ?FakeWallet,
     database: Database,
+    sqlite: ?Sqlite = null,
 
     pub fn initFromToml(gpa: std.mem.Allocator, config_file_name: []const u8) !zig_toml.Parsed(Settings) {
         var parser = zig_toml.Parser(Settings).init(gpa);
@@ -23,6 +24,10 @@ pub const Settings = struct {
 
         return result;
     }
+};
+
+pub const Sqlite = struct {
+    path: []const u8 = "./cocomint_db.sqlite",
 };
 
 pub const DatabaseEngine = enum {

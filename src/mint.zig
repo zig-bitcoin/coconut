@@ -77,6 +77,9 @@ pub fn main() !void {
     };
     defer clap_res.deinit();
 
+    var arena = std.heap.ArenaAllocator.init(gpa.allocator());
+    defer arena.deinit();
+
     const config_path = clap_res.args.config orelse "config.toml";
 
     // TODO add work dir
@@ -101,7 +104,13 @@ pub fn main() !void {
         },
         inline .sqlite => v: {
             // TODO custom path to database?
-            var db = try core.mint_memory.MintSqliteDatabase.initFrom(gpa.allocator(), "./cocomint_db.sqlite");
+
+            const path = try arena.allocator().dupeZ(u8, parsed_settings.value.sqlite.?.path);
+
+            var db = try core.mint_memory.MintSqliteDatabase.initFrom(
+                gpa.allocator(),
+                path.ptr,
+            );
             errdefer db.deinit();
 
             break :v try MintDatabase.initFrom(core.mint_memory.MintSqliteDatabase, gpa.allocator(), db);
@@ -183,9 +192,6 @@ pub fn main() !void {
         }
         ln_backends.deinit();
     }
-
-    var arena = std.heap.ArenaAllocator.init(gpa.allocator());
-    defer arena.deinit();
 
     // TODO set ln router
     // additional routers for httpz server
